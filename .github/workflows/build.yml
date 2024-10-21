@@ -8,7 +8,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
 
     - name: Install tools for building packages
       run: sudo apt-get install rpm dpkg-dev -y
@@ -24,3 +24,4 @@ jobs:
         mkdir -p ~/debpackage/usr/local/bin
         cp count_files.sh ~/debpackage/usr/local/bin/
         dpkg-deb --build ~/debpackage
+
