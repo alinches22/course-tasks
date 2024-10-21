@@ -1,0 +1,26 @@
+name: Build RPM and DEB packages
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Install tools for building packages
+      run: sudo apt-get install rpm dpkg-dev -y
+
+    - name: Build RPM
+      run: |
+        mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+        cp count_files.sh ~/rpmbuild/SOURCES/
+        rpmbuild -ba count_files.spec
+
+    - name: Build DEB
+      run: |
+        mkdir -p ~/debpackage/usr/local/bin
+        cp count_files.sh ~/debpackage/usr/local/bin/
+        dpkg-deb --build ~/debpackage
