@@ -1,0 +1,20 @@
+pipeline {
+    agent any
+    stages {
+        stage('Build RPM Package') {
+            steps {
+                sh 'rpmbuild -ba ~/rpmbuild/SPECS/count_files.spec'
+            }
+        }
+        stage('Build DEB Package') {
+            steps {
+                sh 'dpkg-deb --build ~/rpmbuild/SPECS/debian'
+            }
+        }
+        stage('Execute Script') {
+            steps {
+                sh '/usr/local/bin/count_files.sh'
+            }
+        }
+    }
+}
