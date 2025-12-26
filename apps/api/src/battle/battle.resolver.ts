@@ -7,6 +7,7 @@ import { BattleModel, BattleListModel } from './models/battle.model';
 import { BattleTickModel } from './models/battle-tick.model';
 import { BattleStateModel } from './models/battle-state.model';
 import { BattleResultModel } from './models/battle-result.model';
+import { BattleReconnectionModel } from './models/battle-reconnection.model';
 import { CreateBattleInput } from './dto/create-battle.input';
 import { JoinBattleInput } from './dto/join-battle.input';
 import { SubmitActionInput } from './dto/submit-action.input';
@@ -49,6 +50,25 @@ export class BattleResolver {
   async battle(@Args('id', { type: () => ID }) id: string): Promise<BattleModel> {
     const battle = await this.battleService.findByIdOrThrow(id);
     return this.mapBattle(battle);
+  }
+
+  @Query(() => BattleReconnectionModel, { 
+    description: 'Get current battle state for reconnection (only recent ticks, no future data)',
+    nullable: true,
+  })
+  async battleReconnect(@Args('id', { type: () => ID }) id: string): Promise<BattleReconnectionModel | null> {
+    const state = await this.battleEngineService.getReconnectionState(id);
+    if (!state) return null;
+
+    return {
+      battleId: id,
+      status: state.status,
+      currentTickIndex: state.currentTickIndex,
+      totalTicks: state.totalTicks,
+      timeRemaining: state.timeRemaining,
+      recentTicks: state.recentTicks,
+      players: state.players,
+    };
   }
 
   @Mutation(() => BattleModel, { description: 'Create a new battle' })

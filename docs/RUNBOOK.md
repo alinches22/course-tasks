@@ -411,6 +411,72 @@ For single-browser testing, use GraphQL Playground to:
 3. In Playground, set header `x-dev-user: opponent-test`
 4. Run `joinBattle` mutation
 
+## Server Fairness & Security
+
+### Locked Battle Parameters
+
+When a battle is created, the following params are locked and immutable:
+- `tickIntervalMs` - Time between ticks
+- `startingBalance` - Starting balance for both players
+- `totalTicks` - Total number of ticks in the battle
+- `serverSeed` - Random seed for deterministic replay
+
+### Server-Authoritative State
+
+The server is the **only source of truth** for:
+- Current tick index and time
+- Price data (tick OHLCV)
+- Player positions and PnL calculations
+- Liquidation (if implemented)
+
+Clients cannot:
+- See future ticks
+- Modify time or tick index
+- Calculate their own PnL authoritatively
+
+### Rate Limiting
+
+- Max 3 actions per second per user
+- Duplicate action detection (same tick + action type)
+- Per-action cooldown (configurable via `ACTION_COOLDOWN_MS`)
+
+### Reconnection
+
+If a client disconnects and reconnects:
+
+```graphql
+query {
+  battleReconnect(id: "<BATTLE_ID>") {
+    status
+    currentTickIndex
+    totalTicks
+    timeRemaining
+    recentTicks {
+      tick { close }
+      currentIndex
+    }
+    players {
+      oderId
+      pnl
+      position
+      side
+    }
+  }
+}
+```
+
+This returns only:
+- Current state (no future data)
+- Recent tick window (last 5 ticks)
+- Current player PnL and positions
+
+### Provably Fair Verification
+
+After battle finishes:
+- `scenarioId` and `revealSalt` are revealed
+- Commit hash can be verified: `sha256(scenarioId:revealSalt) === commitHash`
+- Full tick data available for replay
+
 ## Troubleshooting
 
 ### Port Already in Use

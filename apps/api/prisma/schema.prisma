@@ -78,6 +78,12 @@ model Battle {
   revealSalt       String?      @map("reveal_salt") // Revealed after battle ends
   currentTickIndex Int          @default(0) @map("current_tick_index") // Current tick in the battle
 
+  // Locked params (immutable after MATCHED) for fairness & replay
+  tickIntervalMs     Int       @default(2000) @map("tick_interval_ms")    // Locked tick interval
+  startingBalance    Decimal   @default(10000) @map("starting_balance") @db.Decimal(18, 8) // Locked starting balance
+  totalTicks         Int       @default(30) @map("total_ticks")           // Total ticks (locked from scenario)
+  serverSeed         String?   @map("server_seed")                        // Random seed for determinism
+  
   createdAt  DateTime  @default(now()) @map("created_at")
   matchedAt  DateTime? @map("matched_at")
   startedAt  DateTime? @map("started_at")

@@ -36,3 +36,13 @@ export function verifyCommitHash(scenarioId: string, salt: string, commitHash: s
   const computed = generateCommitHash(scenarioId, salt);
   return computed === commitHash;
 }
+
+/**
+ * Generate a server seed for deterministic replay
+ * Includes timestamp for uniqueness
+ */
+export function generateServerSeed(): string {
+  const timestamp = Date.now().toString(36);
+  const random = randomBytes(16).toString('hex');
+  return `${timestamp}-${random}`;
+}

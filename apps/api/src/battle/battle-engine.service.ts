@@ -12,8 +12,8 @@ import { ActionType, ParticipantSide } from '@prisma/client';
 import { ActionTypeEnum } from './enums/battle-status.enum';
 
 interface PlayerState {
-  participantId: string;  // participant record ID
-  userId: string;      // user ID
+  participantId: string;
+  oderId: string;
   position: 'LONG' | 'SHORT' | 'FLAT';
   entryPrice: number;
   quantity: number;
@@ -29,10 +29,18 @@ interface BattleRuntimeState {
   currentTickIndex: number;
   totalTicks: number;
   tickIntervalMs: number;
+  startingBalance: number;
   playerStates: Map<string, PlayerState>;
   isRunning: boolean;
   intervalId?: NodeJS.Timeout;
+  serverSeed: string;
+  startedAt: Date;
 }
+
+// Max ticks to include in reconnection window (no future leaks)
+const TICK_WINDOW_SIZE = 5;
+// Max actions per second per user
+const MAX_ACTIONS_PER_SECOND = 3;
 
 @Injectable()
 export class BattleEngineService {
@@ -51,6 +59,7 @@ export class BattleEngineService {
 
   /**
    * Start a battle after countdown
+   * Uses LOCKED params from battle record for fairness
    */
   async startBattle(battleId: string): Promise<void> {
     const battle = await this.battleService.findByIdOrThrow(battleId);
@@ -59,36 +68,45 @@ export class BattleEngineService {
       throw new BadRequestException('Battle must be in MATCHED status to start');
     }
 
-    const scenario = await this.scenarioService.findByIdOrThrow(battle.scenarioId);
-    const ticks = this.scenarioService.getTicks(scenario);
+    // Use LOCKED params from battle record (not scenario)
+    const lockedTickInterval = (battle as any).tickIntervalMs || this.configService.battleTickIntervalMs;
+    const lockedStartingBalance = Number((battle as any).startingBalance) || 10000;
+    const lockedTotalTicks = (battle as any).totalTicks || 30;
+    const serverSeed = (battle as any).serverSeed || '';
 
     // Initialize player states
     const playerStates = new Map<string, PlayerState>();
     for (const participant of battle.participants) {
       playerStates.set(participant.userId, {
         participantId: participant.id,
-        userId: participant.userId,
+        oderId: participant.userId,
         position: 'FLAT',
         entryPrice: 0,
         quantity: 0,
         realizedPnl: 0,
         unrealizedPnl: 0,
-        balance: Number(participant.startingBalance),
+        balance: lockedStartingBalance,
         side: participant.side,
       });
     }
 
     const runtimeState: BattleRuntimeState = {
       battleId,
-      scenarioId: scenario.id,
+      scenarioId: battle.scenarioId,
       currentTickIndex: 0,
-      totalTicks: ticks.length,
-      tickIntervalMs: (scenario as any).tickIntervalMs || this.configService.battleTickIntervalMs,
+      totalTicks: lockedTotalTicks,
+      tickIntervalMs: lockedTickInterval,
+      startingBalance: lockedStartingBalance,
       playerStates,
       isRunning: true,
+      serverSeed,
+      startedAt: new Date(),
     };
 
     this.activeBattles.set(battleId, runtimeState);
+
+    // Cache initial state in Redis for reconnection
+    await this.cacheRuntimeState(battleId, runtimeState);
 
     // Start countdown
     await this.runCountdown(battleId);
@@ -134,6 +152,7 @@ export class BattleEngineService {
 
   /**
    * Start streaming ticks for a battle
+   * Server is the ONLY source of truth for ticks
    */
   private async startTickStreaming(battleId: string): Promise<void> {
     const state = this.activeBattles.get(battleId);
@@ -142,6 +161,7 @@ export class BattleEngineService {
     const scenario = await this.scenarioService.findByIdOrThrow(state.scenarioId);
     const ticks = this.scenarioService.getTicks(scenario);
 
+    // Use locked interval from battle, not scenario
     const intervalMs = state.tickIntervalMs;
 
     const streamTick = async () => {
@@ -151,20 +171,21 @@ export class BattleEngineService {
       }
 
       const tickIndex = currentState.currentTickIndex;
-      const tick = ticks[tickIndex];
-
-      if (!tick) {
-        // Battle finished - all ticks sent
+      
+      // Use locked totalTicks, not scenario ticks length
+      if (tickIndex >= currentState.totalTicks || !ticks[tickIndex]) {
         await this.finishBattle(battleId);
         return;
       }
 
-      // Update unrealized PnL for all players based on current price
+      const tick = ticks[tickIndex];
       const currentPrice = tick.close;
+
+      // Calculate PnL for all players (SERVER-SIDE ONLY)
       const playerPnls: { oderId: string; pnl: number; position: string; side: string }[] = [];
 
       currentState.playerStates.forEach((playerState, oderId) => {
-        // Calculate unrealized PnL
+        // Server calculates unrealized PnL
         if (playerState.position === 'LONG') {
           playerState.unrealizedPnl = (currentPrice - playerState.entryPrice) * playerState.quantity;
         } else if (playerState.position === 'SHORT') {
@@ -184,28 +205,35 @@ export class BattleEngineService {
         });
       });
 
-      const timeRemaining = (ticks.length - tickIndex - 1) * (intervalMs / 1000);
+      // Server calculates time remaining
+      const timeRemaining = (currentState.totalTicks - tickIndex - 1) * (intervalMs / 1000);
 
-      // Publish tick with player PnLs
-      await this.pubSub.publish(`${BATTLE_TICK}.${battleId}`, {
-        battleTick: {
-          battleId,
-          tick: {
-            ts: tick.ts,
-            open: tick.open,
-            high: tick.high,
-            low: tick.low,
-            close: tick.close,
-            volume: tick.volume,
-          },
-          currentIndex: tickIndex,
-          totalTicks: ticks.length,
-          timeRemaining: Math.round(timeRemaining),
-          players: playerPnls,
+      const tickPayload = {
+        battleId,
+        tick: {
+          ts: tick.ts,
+          open: tick.open,
+          high: tick.high,
+          low: tick.low,
+          close: tick.close,
+          volume: tick.volume,
         },
+        currentIndex: tickIndex,
+        totalTicks: currentState.totalTicks,
+        timeRemaining: Math.round(timeRemaining),
+        players: playerPnls,
+      };
+
+      // Store tick in Redis for reconnection (only recent window)
+      await this.redisService.addToTickWindow(battleId, tickPayload, TICK_WINDOW_SIZE);
+      await this.redisService.setLastTick(battleId, tickIndex, tickPayload);
+
+      // Publish tick
+      await this.pubSub.publish(`${BATTLE_TICK}.${battleId}`, {
+        battleTick: tickPayload,
       });
 
-      // Update battle current tick index in DB periodically (every 5 ticks)
+      // Update DB periodically (every 5 ticks)
       if (tickIndex % 5 === 0) {
         await this.prisma.battle.update({
           where: { id: battleId },
@@ -220,12 +248,11 @@ export class BattleEngineService {
       currentState.intervalId = setTimeout(streamTick, intervalMs);
     };
 
-    // Start streaming
     streamTick();
   }
 
   /**
-   * Process a player action (BUY/SELL/CLOSE)
+   * Process a player action with rate limiting and duplicate detection
    */
   async processAction(
     battleId: string,
@@ -243,13 +270,30 @@ export class BattleEngineService {
       throw new ForbiddenException('You are not a participant in this battle');
     }
 
+    // Rate limiting: max actions per second
+    const withinLimit = await this.redisService.checkRateLimit(oderId, MAX_ACTIONS_PER_SECOND);
+    if (!withinLimit) {
+      throw new BadRequestException('Rate limit exceeded. Slow down.');
+    }
+
+    // Duplicate action detection (same tick, same action type)
+    const isDuplicate = await this.redisService.checkDuplicateAction(
+      battleId,
+      oderId,
+      state.currentTickIndex,
+      actionType,
+    );
+    if (isDuplicate) {
+      throw new BadRequestException('Duplicate action rejected');
+    }
+
     // Check cooldown
     const canAct = await this.redisService.checkActionCooldown(battleId, oderId);
     if (!canAct) {
       throw new BadRequestException('Action cooldown active. Please wait.');
     }
 
-    // Get current price from latest tick
+    // Get current price from SERVER state (not client)
     const scenario = await this.scenarioService.findByIdOrThrow(state.scenarioId);
     const ticks = this.scenarioService.getTicks(scenario);
     const currentTick = ticks[state.currentTickIndex] || ticks[state.currentTickIndex - 1];
@@ -270,7 +314,7 @@ export class BattleEngineService {
       prismaActionType = ActionType.CLOSE;
     }
 
-    // Record the action
+    // Record action with SERVER timestamp and tick index
     await this.actionService.createAction({
       battleId,
       oderId,
@@ -280,7 +324,7 @@ export class BattleEngineService {
       tickIndex: state.currentTickIndex,
     });
 
-    // Update player state based on action
+    // Update player state (SERVER-SIDE)
     this.updatePlayerState(playerState, actionType, quantity, currentPrice);
 
     // Persist position to DB
@@ -304,6 +348,62 @@ export class BattleEngineService {
   }
 
   /**
+   * Get current battle state for reconnection
+   * Returns only current tick + recent window (NO FUTURE TICKS)
+   */
+  async getReconnectionState(battleId: string): Promise<{
+    status: string;
+    currentTickIndex: number;
+    totalTicks: number;
+    timeRemaining: number;
+    recentTicks: any[];
+    players: any[];
+  } | null> {
+    // Check in-memory state first
+    const state = this.activeBattles.get(battleId);
+    if (state && state.isRunning) {
+      const recentTicks = await this.redisService.getTickWindow(battleId);
+      
+      const playerPnls: any[] = [];
+      state.playerStates.forEach((ps, oderId) => {
+        const totalPnl = ps.realizedPnl + ps.unrealizedPnl;
+        const pnlPercent = ps.balance > 0 ? (totalPnl / ps.balance) * 100 : 0;
+        playerPnls.push({
+          oderId,
+          pnl: pnlPercent,
+          position: ps.position,
+          side: ps.side,
+        });
+      });
+
+      return {
+        status: 'ACTIVE',
+        currentTickIndex: state.currentTickIndex,
+        totalTicks: state.totalTicks,
+        timeRemaining: (state.totalTicks - state.currentTickIndex) * (state.tickIntervalMs / 1000),
+        recentTicks,
+        players: playerPnls,
+      };
+    }
+
+    // Fallback to Redis cache
+    const lastTick = await this.redisService.getLastTick(battleId);
+    if (lastTick) {
+      const recentTicks = await this.redisService.getTickWindow(battleId);
+      return {
+        status: 'ACTIVE',
+        currentTickIndex: lastTick.tickIndex,
+        totalTicks: lastTick.tick.totalTicks,
+        timeRemaining: lastTick.tick.timeRemaining,
+        recentTicks,
+        players: lastTick.tick.players || [],
+      };
+    }
+
+    return null;
+  }
+
+  /**
    * Update player state after an action
    */
   private updatePlayerState(
@@ -313,7 +413,6 @@ export class BattleEngineService {
     price: number,
   ): void {
     if (actionType === ActionTypeEnum.CLOSE) {
-      // Close any open position
       if (state.position === 'LONG') {
         const pnl = (price - state.entryPrice) * state.quantity;
         state.realizedPnl += pnl;
@@ -330,7 +429,6 @@ export class BattleEngineService {
 
     if (actionType === ActionTypeEnum.BUY) {
       if (state.position === 'SHORT') {
-        // Close short position
         const pnl = (state.entryPrice - price) * state.quantity;
         state.realizedPnl += pnl;
         state.position = 'FLAT';
@@ -338,12 +436,10 @@ export class BattleEngineService {
         state.quantity = 0;
         state.unrealizedPnl = 0;
       } else if (state.position === 'FLAT') {
-        // Open long position
         state.position = 'LONG';
         state.entryPrice = price;
         state.quantity = quantity;
       } else {
-        // Add to long position (average entry)
         const totalCost = state.entryPrice * state.quantity + price * quantity;
         const totalQuantity = state.quantity + quantity;
         state.entryPrice = totalCost / totalQuantity;
@@ -351,7 +447,6 @@ export class BattleEngineService {
       }
     } else if (actionType === ActionTypeEnum.SELL) {
       if (state.position === 'LONG') {
-        // Close long position
         const pnl = (price - state.entryPrice) * state.quantity;
         state.realizedPnl += pnl;
         state.position = 'FLAT';
@@ -359,12 +454,10 @@ export class BattleEngineService {
         state.quantity = 0;
         state.unrealizedPnl = 0;
       } else if (state.position === 'FLAT') {
-        // Open short position
         state.position = 'SHORT';
         state.entryPrice = price;
         state.quantity = quantity;
       } else {
-        // Add to short position (average entry)
         const totalCost = state.entryPrice * state.quantity + price * quantity;
         const totalQuantity = state.quantity + quantity;
         state.entryPrice = totalCost / totalQuantity;
@@ -380,19 +473,16 @@ export class BattleEngineService {
     const state = this.activeBattles.get(battleId);
     if (!state) return;
 
-    // Stop streaming
     state.isRunning = false;
     if (state.intervalId) {
       clearTimeout(state.intervalId);
     }
 
-    // Get final prices for unrealized PnL
     const scenario = await this.scenarioService.findByIdOrThrow(state.scenarioId);
     const ticks = this.scenarioService.getTicks(scenario);
-    const finalTick = ticks[ticks.length - 1];
+    const finalTick = ticks[Math.min(state.totalTicks - 1, ticks.length - 1)];
     const finalPrice = finalTick?.close || 0;
 
-    // Calculate final PnL for each player
     const battle = await this.battleService.findByIdOrThrow(battleId);
     const results: { oderId: string; finalPnl: number; side: ParticipantSide }[] = [];
 
@@ -400,7 +490,6 @@ export class BattleEngineService {
       const playerState = state.playerStates.get(participant.userId);
       if (!playerState) continue;
 
-      // Calculate unrealized PnL
       let unrealizedPnl = 0;
       if (playerState.position === 'LONG') {
         unrealizedPnl = (finalPrice - playerState.entryPrice) * playerState.quantity;
@@ -408,7 +497,7 @@ export class BattleEngineService {
         unrealizedPnl = (playerState.entryPrice - finalPrice) * playerState.quantity;
       }
 
-      const startingBalance = Number(participant.startingBalance);
+      const startingBalance = state.startingBalance;
       const totalPnl = playerState.realizedPnl + unrealizedPnl;
       const pnlPercent = startingBalance > 0 ? (totalPnl / startingBalance) * 100 : 0;
 
@@ -418,7 +507,6 @@ export class BattleEngineService {
         side: participant.side,
       });
 
-      // Update final participant state
       await this.prisma.battleParticipant.update({
         where: { id: participant.id },
         data: {
@@ -430,7 +518,6 @@ export class BattleEngineService {
       });
     }
 
-    // Determine winner
     const playerA = results.find((r) => r.side === ParticipantSide.A);
     const playerB = results.find((r) => r.side === ParticipantSide.B);
 
@@ -447,7 +534,6 @@ export class BattleEngineService {
       }
     }
 
-    // Save result
     await this.prisma.battleResult.create({
       data: {
         battleId,
@@ -457,10 +543,8 @@ export class BattleEngineService {
       },
     });
 
-    // Update battle status
     await this.battleService.updateStatus(battleId, 'FINISHED' as any);
 
-    // Award points
     const pointsA = playerA
       ? await this.pointsService.awardBattlePoints(
           playerA.oderId,
@@ -481,7 +565,6 @@ export class BattleEngineService {
         )
       : 0;
 
-    // Publish state change
     await this.pubSub.publish(`${BATTLE_STATE}.${battleId}`, {
       battleState: {
         battleId,
@@ -491,7 +574,6 @@ export class BattleEngineService {
       },
     });
 
-    // Get winner user info
     let winnerUser: { id: string; address: string; createdAt: Date } | undefined;
     if (winnerUserId) {
       const user = await this.prisma.user.findUnique({ where: { id: winnerUserId } });
@@ -500,7 +582,6 @@ export class BattleEngineService {
       }
     }
 
-    // Publish result
     await this.pubSub.publish(`${BATTLE_RESULT}.${battleId}`, {
       battleResult: {
         battleId,
@@ -516,28 +597,42 @@ export class BattleEngineService {
       },
     });
 
-    // Cleanup
+    // Cleanup Redis
+    await this.redisService.deleteBattleState(battleId);
     this.activeBattles.delete(battleId);
   }
 
   /**
-   * Check if a battle is active
+   * Cache runtime state in Redis for reconnection
    */
+  private async cacheRuntimeState(battleId: string, state: BattleRuntimeState): Promise<void> {
+    const playerStatesObj: Record<string, any> = {};
+    state.playerStates.forEach((ps, oderId) => {
+      playerStatesObj[oderId] = ps;
+    });
+
+    await this.redisService.setBattleState(battleId, {
+      battleId: state.battleId,
+      scenarioId: state.scenarioId,
+      currentTickIndex: state.currentTickIndex,
+      totalTicks: state.totalTicks,
+      tickIntervalMs: state.tickIntervalMs,
+      startingBalance: state.startingBalance,
+      serverSeed: state.serverSeed,
+      startedAt: state.startedAt.toISOString(),
+      playerStates: playerStatesObj,
+    });
+  }
+
   isActive(battleId: string): boolean {
     return this.activeBattles.has(battleId);
   }
 
-  /**
-   * Get current tick index for a battle
-   */
   getCurrentTickIndex(battleId: string): number {
     const state = this.activeBattles.get(battleId);
     return state?.currentTickIndex || 0;
   }
 
-  /**
-   * Get player state for a battle
-   */
   getPlayerState(battleId: string, oderId: string): PlayerState | undefined {
     const state = this.activeBattles.get(battleId);
     return state?.playerStates.get(oderId);

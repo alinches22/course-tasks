@@ -7,7 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { ScenarioService } from '../scenario/scenario.service';
 import { UserService } from '../user/user.service';
-import { generateSalt, generateCommitHash } from '../common/utils/hash.util';
+import { generateSalt, generateCommitHash, generateServerSeed } from '../common/utils/hash.util';
 import { Battle, BattleParticipant, BattleStatus, ParticipantSide } from '@prisma/client';
 
 export interface BattleWithParticipants extends Battle {
@@ -120,17 +120,26 @@ export class BattleService {
       scenario = await this.scenarioService.getRandomScenario();
     }
 
+    // Get scenario ticks for total count
+    const ticks = this.scenarioService.getTicks(scenario);
+
     // Generate commit hash for provably fair
     const salt = generateSalt();
     const commitHash = generateCommitHash(scenario.id, salt);
+    const serverSeed = generateServerSeed();
 
-    // Create battle and first participant in a transaction
+    // Create battle with LOCKED params for fairness
     const battle = await this.prisma.battle.create({
       data: {
         scenarioId: scenario.id,
         commitHash,
         revealSalt: salt, // Stored but not exposed until battle ends
+        serverSeed, // For deterministic replay
         status: BattleStatus.WAITING,
+        // Lock params at creation time
+        tickIntervalMs: (scenario as any).tickIntervalMs || 2000,
+        startingBalance,
+        totalTicks: ticks.length,
         participants: {
           create: {
             userId,
