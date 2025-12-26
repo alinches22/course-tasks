@@ -31,7 +31,7 @@ cp apps/web/.env.example apps/web/.env.local
 
 ```bash
 # Start PostgreSQL and Redis
-pnpm docker:up
+docker-compose up -d
 
 # Verify containers are running
 docker ps
@@ -43,10 +43,10 @@ docker ps
 # Generate Prisma client
 pnpm db:generate
 
-# Run migrations
+# Run migrations (creates tables)
 pnpm db:migrate:dev
 
-# Seed initial data
+# Seed initial data (scenarios)
 pnpm db:seed
 ```
 
@@ -59,6 +59,27 @@ pnpm dev
 # Or start individually
 pnpm dev:api  # API at http://localhost:4000
 pnpm dev:web  # Web at http://localhost:3000
+```
+
+### 6. Verify
+
+- Open GraphQL Playground: http://localhost:4000/graphql
+- Test a query:
+
+```graphql
+query {
+  getNonce(address: "0x1234567890123456789012345678901234567890") {
+    nonce
+    message
+  }
+}
+```
+
+## Full Setup Commands (Copy-Paste)
+
+```bash
+# One-liner setup
+docker-compose up -d && pnpm install && pnpm db:generate && pnpm db:migrate:dev && pnpm db:seed && pnpm dev:api
 ```
 
 ## Common Commands
@@ -89,9 +110,9 @@ pnpm dev:web  # Web at http://localhost:3000
 
 | Command | Description |
 |---------|-------------|
-| `pnpm docker:up` | Start PostgreSQL + Redis |
-| `pnpm docker:down` | Stop containers |
-| `pnpm docker:logs` | View container logs |
+| `docker-compose up -d` | Start PostgreSQL + Redis |
+| `docker-compose down` | Stop containers |
+| `docker-compose logs -f` | View container logs |
 
 ## Endpoints
 
@@ -103,6 +124,136 @@ pnpm dev:web  # Web at http://localhost:3000
 ### Web
 
 - Application: http://localhost:3000
+
+## GraphQL API Overview
+
+### Public Operations (No Auth Required)
+
+```graphql
+# Get nonce for wallet signing
+query GetNonce($address: String!) {
+  getNonce(address: $address) {
+    nonce
+    message
+  }
+}
+
+# Verify signature and get JWT
+mutation VerifySignature($input: VerifySignatureInput!) {
+  verifySignature(input: $input) {
+    token
+    user {
+      id
+      address
+    }
+  }
+}
+```
+
+### Protected Operations (JWT Required)
+
+```graphql
+# Get current user
+query Me {
+  me {
+    id
+    address
+    createdAt
+  }
+}
+
+# List battles
+query Battles($filter: BattlesFilterInput) {
+  battles(filter: $filter) {
+    battles {
+      id
+      status
+      commitHash
+      participants {
+        user { address }
+        side
+      }
+    }
+    hasMore
+    nextCursor
+  }
+}
+
+# Create battle
+mutation CreateBattle {
+  createBattle(input: { startingBalance: 10000 }) {
+    id
+    status
+    commitHash
+  }
+}
+
+# Join battle
+mutation JoinBattle($battleId: ID!) {
+  joinBattle(input: { battleId: $battleId }) {
+    id
+    status
+  }
+}
+
+# Submit action
+mutation SubmitAction($input: SubmitActionInput!) {
+  submitAction(input: $input)
+}
+```
+
+### Subscriptions (WebSocket)
+
+```graphql
+# Subscribe to battle ticks
+subscription BattleTick($battleId: ID!) {
+  battleTick(battleId: $battleId) {
+    battleId
+    tick { ts open high low close volume }
+    currentIndex
+    totalTicks
+    timeRemaining
+  }
+}
+
+# Subscribe to battle state
+subscription BattleState($battleId: ID!) {
+  battleState(battleId: $battleId) {
+    battleId
+    status
+    countdown
+    message
+  }
+}
+
+# Subscribe to battle result
+subscription BattleResult($battleId: ID!) {
+  battleResult(battleId: $battleId) {
+    battleId
+    winner { address }
+    isDraw
+    pnlA
+    pnlB
+    scenarioId
+    revealSalt
+  }
+}
+```
+
+## WebSocket Connection
+
+To connect with authentication:
+
+```javascript
+import { createClient } from 'graphql-ws';
+
+const client = createClient({
+  url: 'ws://localhost:4000/graphql',
+  connectionParams: {
+    authorization: 'Bearer YOUR_JWT_TOKEN',
+  },
+});
+```
 
 ## Troubleshooting
 
@@ -127,7 +278,7 @@ docker ps
 docker logs tradeversus-postgres
 
 # Restart containers
-pnpm docker:down && pnpm docker:up
+docker-compose down && docker-compose up -d
 ```
 
 ### Prisma Issues
@@ -136,7 +287,7 @@ pnpm docker:down && pnpm docker:up
 # Regenerate client
 pnpm db:generate
 
-# Reset database
+# Reset database (⚠️ deletes all data)
 pnpm db:reset
 ```
 
@@ -150,6 +301,13 @@ docker logs tradeversus-redis
 docker exec tradeversus-redis redis-cli ping
 ```
 
+### GraphQL Schema Not Updating
+
+```bash
+# Restart the API server
+# The schema.gql file is auto-generated on startup
+```
+
 ## Environment Variables
 
 ### Required
@@ -159,7 +317,6 @@ docker exec tradeversus-redis redis-cli ping
 | `DATABASE_URL` | PostgreSQL connection string |
 | `REDIS_URL` | Redis connection string |
 | `JWT_SECRET` | Secret for JWT signing (min 32 chars) |
-| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | WalletConnect project ID |
 
 ### Optional
 
@@ -169,6 +326,9 @@ docker exec tradeversus-redis redis-cli ping
 | `JWT_EXPIRES_IN` | 7d | JWT expiry time |
 | `THROTTLE_TTL` | 60 | Rate limit window (seconds) |
 | `THROTTLE_LIMIT` | 100 | Requests per window |
+| `BATTLE_TICK_INTERVAL_MS` | 5000 | Time between ticks |
+| `BATTLE_COUNTDOWN_SECONDS` | 10 | Countdown before battle |
+| `ACTION_COOLDOWN_MS` | 1000 | Min time between actions |
 
 ## Production Deployment
 
@@ -185,8 +345,7 @@ Ensure production environment variables are set:
 - `NODE_ENV=production`
 - `DATABASE_URL` - Production database URL
 - `REDIS_URL` - Production Redis URL
-- `JWT_SECRET` - Strong, unique secret
-- `NEXT_PUBLIC_*` - Public environment variables
+- `JWT_SECRET` - Strong, unique secret (32+ characters)
 
 ### Start
 
