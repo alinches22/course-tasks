@@ -1,8 +1,13 @@
-import { InputType, Field } from '@nestjs/graphql';
-import { IsOptional, IsNumber, Min, Max } from 'class-validator';
+import { InputType, Field, ID } from '@nestjs/graphql';
+import { IsOptional, IsNumber, Min, Max, IsUUID } from 'class-validator';
 
 @InputType()
 export class CreateBattleInput {
+  @Field(() => ID, { nullable: true, description: 'Scenario ID (optional - random if not provided)' })
+  @IsOptional()
+  @IsUUID()
+  scenarioId?: string;
+
   @Field(() => Number, { nullable: true, description: 'Starting balance (default: 10000)' })
   @IsOptional()
   @IsNumber()

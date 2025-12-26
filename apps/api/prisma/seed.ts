@@ -64,9 +64,11 @@ async function seed() {
   // Create scenarios
   const scenarios = [
     {
+      symbol: 'BTC/USD',
       asset: 'BTC/USD',
       timeframe: '5m',
-      ticks: generateTicks(42000, 0.8, 'bull', 60), // 60 ticks = 5 minutes of 5-second data
+      tickIntervalMs: 2000, // 2 seconds per tick for faster battles
+      ticks: generateTicks(42000, 0.8, 'bull', 30), // 30 ticks = 60s battle at 2s/tick
       metadata: {
         name: 'BTC Bull Run',
         description: 'Bitcoin experiencing strong upward momentum with consistent buying pressure.',
@@ -76,9 +78,11 @@ async function seed() {
       },
     },
     {
+      symbol: 'BTC/USD',
       asset: 'BTC/USD',
       timeframe: '5m',
-      ticks: generateTicks(45000, 1.2, 'bear', 60),
+      tickIntervalMs: 2000,
+      ticks: generateTicks(45000, 1.2, 'bear', 30),
       metadata: {
         name: 'BTC Flash Crash',
         description: 'Bitcoin sudden sell-off with high volatility and cascading liquidations.',
@@ -88,9 +92,11 @@ async function seed() {
       },
     },
     {
+      symbol: 'ETH/USD',
       asset: 'ETH/USD',
       timeframe: '5m',
-      ticks: generateTicks(2800, 0.6, 'bull', 60),
+      tickIntervalMs: 2000,
+      ticks: generateTicks(2800, 0.6, 'bull', 30),
       metadata: {
         name: 'ETH Breakout',
         description: 'Ethereum breaking above key resistance with increasing volume.',
@@ -100,9 +106,11 @@ async function seed() {
       },
     },
     {
+      symbol: 'ETH/USD',
       asset: 'ETH/USD',
       timeframe: '5m',
-      ticks: generateTicks(3200, 0.9, 'sideways', 60),
+      tickIntervalMs: 2000,
+      ticks: generateTicks(3200, 0.9, 'sideways', 30),
       metadata: {
         name: 'ETH Consolidation',
         description: 'Ethereum in tight range with low volatility and uncertain direction.',
@@ -111,37 +119,15 @@ async function seed() {
         endDate: '2024-04-05T16:05:00Z',
       },
     },
-    {
-      asset: 'BTC/USD',
-      timeframe: '5m',
-      ticks: generateTicks(38000, 1.5, 'bear', 60),
-      metadata: {
-        name: 'BTC Capitulation',
-        description: 'Bitcoin major support breakdown with extreme selling pressure.',
-        difficulty: 'HARD',
-        startDate: '2024-05-12T08:00:00Z',
-        endDate: '2024-05-12T08:05:00Z',
-      },
-    },
-    {
-      asset: 'ETH/USD',
-      timeframe: '5m',
-      ticks: generateTicks(2500, 1.0, 'bull', 60),
-      metadata: {
-        name: 'ETH Recovery Rally',
-        description: 'Ethereum bouncing from oversold conditions with strong buying interest.',
-        difficulty: 'MEDIUM',
-        startDate: '2024-06-01T12:00:00Z',
-        endDate: '2024-06-01T12:05:00Z',
-      },
-    },
   ];
 
   for (const scenario of scenarios) {
     await prisma.scenario.create({
       data: {
+        symbol: scenario.symbol,
         asset: scenario.asset,
         timeframe: scenario.timeframe,
+        tickIntervalMs: scenario.tickIntervalMs,
         ticks: scenario.ticks as unknown as Prisma.InputJsonValue,
         metadata: scenario.metadata as unknown as Prisma.InputJsonValue,
       },

@@ -111,3 +111,6 @@ export const CANCEL_BATTLE = gql`
     }
   }
 `;
+
+// Action types for battle
+export type ActionType = 'BUY' | 'SELL' | 'CLOSE';

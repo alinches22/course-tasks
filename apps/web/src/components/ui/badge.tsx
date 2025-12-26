@@ -67,6 +67,7 @@ export function StatusBadge({ status }: { status: string }) {
   const config: Record<string, { variant: BadgeProps['variant']; label: string; pulse?: boolean }> = {
     WAITING: { variant: 'warning', label: 'Waiting', pulse: true },
     MATCHED: { variant: 'info', label: 'Matched', pulse: true },
+    ACTIVE: { variant: 'success', label: 'Live', pulse: true },
     RUNNING: { variant: 'success', label: 'Live', pulse: true },
     FINISHED: { variant: 'default', label: 'Finished' },
     CANCELED: { variant: 'danger', label: 'Canceled' },

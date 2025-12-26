@@ -20,6 +20,26 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       return true;
     }
 
+    // Check for dev auth header (development only)
+    const ctx = GqlExecutionContext.create(context);
+    const gqlContext = ctx.getContext();
+    const req = gqlContext.req;
+
+    if (req?.headers?.['x-dev-user']) {
+      // In dev mode, allow bypassing auth with x-dev-user header
+      const devUser = req.headers['x-dev-user'];
+      req.user = {
+        userId: devUser,
+        address: `0x${devUser.padStart(40, '0')}`,
+      };
+      return true;
+    }
+
+    // For subscriptions, check if user was set by onConnect
+    if (gqlContext.user) {
+      return true;
+    }
+
     return super.canActivate(context);
   }
 
@@ -39,8 +59,15 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     err: Error | null,
     user: TUser,
     _info: unknown,
-    _context: ExecutionContext,
+    context: ExecutionContext,
   ): TUser {
+    // Check if we already have a dev user from the header
+    const ctx = GqlExecutionContext.create(context);
+    const req = ctx.getContext().req;
+    if (req?.user?.userId) {
+      return req.user as TUser;
+    }
+
     if (err || !user) {
       throw err || new UnauthorizedException('Invalid or expired token');
     }

@@ -15,6 +15,12 @@ export const BATTLE_TICK_SUBSCRIPTION = gql`
       currentIndex
       totalTicks
       timeRemaining
+      players {
+        oderId
+        pnl
+        position
+        side
+      }
     }
   }
 `;

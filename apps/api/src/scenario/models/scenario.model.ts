@@ -45,10 +45,16 @@ export class ScenarioModel {
   id: string;
 
   @Field(() => String)
+  symbol: string;
+
+  @Field(() => String)
   asset: string;
 
   @Field(() => String)
   timeframe: string;
+
+  @Field(() => Int)
+  tickIntervalMs: number;
 
   @Field(() => Int)
   tickCount: number;

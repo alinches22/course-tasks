@@ -13,14 +13,13 @@ import {
 import { BattleChart } from '@/components/battle/battle-chart';
 import { BattleTimer } from '@/components/battle/battle-timer';
 import { BattleActions } from '@/components/battle/battle-actions';
-import { BattlePnl } from '@/components/battle/battle-pnl';
-import { OpponentStatus } from '@/components/battle/opponent-status';
 import { BattleResultModal } from '@/components/battle/battle-result-modal';
 import { StatusBadge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/auth.store';
-import { useBattleStore } from '@/stores/battle.store';
+import { formatPercentage } from '@/lib/utils/format';
+import { cn } from '@/lib/utils/cn';
 
 interface Tick {
   ts: number;
@@ -31,32 +30,31 @@ interface Tick {
   volume: number;
 }
 
+interface PlayerPnl {
+  oderId: string;
+  pnl: number;
+  position: string;
+  side: string;
+}
+
 export default function BattlePage() {
   const params = useParams();
   const battleId = params.id as string;
   const { user } = useAuthStore();
-  
-  // Get individual actions from store to avoid dependency issues
-  const addTick = useBattleStore((state) => state.addTick);
-  const setStatus = useBattleStore((state) => state.setStatus);
-  const setCountdown = useBattleStore((state) => state.setCountdown);
-  const setMessage = useBattleStore((state) => state.setMessage);
-  const setBattleId = useBattleStore((state) => state.setBattleId);
-  const reset = useBattleStore((state) => state.reset);
-  
-  // Get state values
-  const storeStatus = useBattleStore((state) => state.status);
-  const storeCountdown = useBattleStore((state) => state.countdown);
-  const storeCurrentIndex = useBattleStore((state) => state.currentIndex);
-  const storeTotalTicks = useBattleStore((state) => state.totalTicks);
-  const storeTimeRemaining = useBattleStore((state) => state.timeRemaining);
 
   const [ticks, setTicks] = useState<Tick[]>([]);
+  const [status, setStatus] = useState<string>('WAITING');
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [message, setMessage] = useState<string>('');
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [totalTicks, setTotalTicks] = useState(0);
+  const [timeRemaining, setTimeRemaining] = useState(0);
+  const [playerPnls, setPlayerPnls] = useState<PlayerPnl[]>([]);
   const [showResult, setShowResult] = useState(false);
   const [battleResult, setBattleResult] = useState<any>(null);
 
   // Fetch initial battle data
-  const [{ data: battleData, fetching }] = useQuery({
+  const [{ data: battleData, fetching }, refetch] = useQuery({
     query: GET_BATTLE,
     variables: { id: battleId },
   });
@@ -85,21 +83,31 @@ export default function BattlePage() {
   // Handle tick updates
   useEffect(() => {
     if (tickResult.data?.battleTick) {
-      const { tick, currentIndex, totalTicks, timeRemaining } = tickResult.data.battleTick;
+      const { tick, currentIndex: idx, totalTicks: total, timeRemaining: remaining, players } = tickResult.data.battleTick;
       setTicks((prev) => [...prev, tick]);
-      addTick(tick, currentIndex, totalTicks, timeRemaining);
+      setCurrentIndex(idx);
+      setTotalTicks(total);
+      setTimeRemaining(remaining);
+      if (players) {
+        setPlayerPnls(players);
+      }
     }
-  }, [tickResult.data, addTick]);
+  }, [tickResult.data]);
 
   // Handle state updates
   useEffect(() => {
     if (stateResult.data?.battleState) {
-      const { status, countdown, message } = stateResult.data.battleState;
-      setStatus(status);
-      setCountdown(countdown);
-      setMessage(message);
+      const { status: newStatus, countdown: newCountdown, message: newMessage } = stateResult.data.battleState;
+      setStatus(newStatus);
+      setCountdown(newCountdown);
+      setMessage(newMessage);
+      
+      // Refetch battle data when status changes
+      if (newStatus !== status) {
+        refetch();
+      }
     }
-  }, [stateResult.data, setStatus, setCountdown, setMessage]);
+  }, [stateResult.data, status, refetch]);
 
   // Handle result
   useEffect(() => {
@@ -109,14 +117,20 @@ export default function BattlePage() {
     }
   }, [resultResult.data]);
 
-  // Initialize battle store
+  // Initialize status from battle data
   useEffect(() => {
-    setBattleId(battleId);
     if (battleData?.battle) {
       setStatus(battleData.battle.status);
     }
-    return () => reset();
-  }, [battleId, battleData, setBattleId, setStatus, reset]);
+  }, [battleData]);
+
+  // Reset on unmount
+  useEffect(() => {
+    return () => {
+      setTicks([]);
+      setPlayerPnls([]);
+    };
+  }, [battleId]);
 
   if (fetching) {
     return (
@@ -144,10 +158,10 @@ export default function BattlePage() {
   }
 
   const myParticipant = battle.participants.find((p: any) => p.user.id === user?.id);
-  const status = storeStatus || battle.status;
+  const myPnl = playerPnls.find((p) => p.oderId === user?.id);
   const lastTick = ticks[ticks.length - 1];
   const currentPrice = lastTick?.close ?? 0;
-  const isRunning = status === 'RUNNING';
+  const isActive = status === 'ACTIVE';
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
@@ -184,52 +198,85 @@ export default function BattlePage() {
 
           {/* Sidebar */}
           <div className="space-y-4">
-            {/* Timer */}
+            {/* Timer / Countdown */}
             <Card>
               <CardContent className="p-4">
                 <BattleTimer
-                  timeRemaining={storeTimeRemaining}
-                  totalTicks={storeTotalTicks}
-                  currentIndex={storeCurrentIndex}
+                  timeRemaining={timeRemaining}
+                  totalTicks={totalTicks}
+                  currentIndex={currentIndex}
                   status={status}
-                  countdown={storeCountdown}
+                  countdown={countdown}
                 />
+                {message && (
+                  <p className="text-center text-sm text-accent-green mt-2">{message}</p>
+                )}
               </CardContent>
             </Card>
 
-            {/* Players */}
+            {/* Player PnLs */}
             <Card>
-              <CardContent className="p-4 space-y-3">
-                {battle.participants.map((p: any) => (
-                  <OpponentStatus
-                    key={p.id}
-                    address={p.user.address}
-                    side={p.side}
-                    isYou={p.user.id === user?.id}
-                  />
-                ))}
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Live PnL</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="space-y-3">
+                  {battle.participants.map((p: any) => {
+                    const pnlData = playerPnls.find((pl) => pl.oderId === p.user.id);
+                    const isMe = p.user.id === user?.id;
+                    const pnl = pnlData?.pnl ?? 0;
+                    
+                    return (
+                      <div
+                        key={p.id}
+                        className={cn(
+                          'flex items-center justify-between p-3 rounded-lg',
+                          isMe ? 'bg-accent-green/10 border border-accent-green/30' : 'bg-surface'
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          <div
+                            className={cn(
+                              'w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold',
+                              p.side === 'A'
+                                ? 'bg-accent-blue/20 text-accent-blue'
+                                : 'bg-accent-purple/20 text-accent-purple'
+                            )}
+                          >
+                            {p.side}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-text-primary">
+                              {isMe ? 'You' : 'Opponent'}
+                            </p>
+                            <p className="text-xs text-text-muted">
+                              {pnlData?.position || 'FLAT'}
+                            </p>
+                          </div>
+                        </div>
+                        <div
+                          className={cn(
+                            'text-lg font-bold number-ticker',
+                            pnl >= 0 ? 'text-accent-green' : 'text-accent-red'
+                          )}
+                        >
+                          {formatPercentage(pnl)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </CardContent>
             </Card>
-
-            {/* PnL */}
-            {myParticipant && (
-              <Card>
-                <CardContent className="p-4">
-                  <BattlePnl
-                    pnl={0} // Real PnL would come from position tracking
-                    startingBalance={myParticipant.startingBalance}
-                  />
-                </CardContent>
-              </Card>
-            )}
 
             {/* Actions */}
             <Card>
               <CardContent className="p-4">
                 <BattleActions
                   battleId={battleId}
-                  isRunning={isRunning}
+                  isActive={isActive}
                   currentPrice={currentPrice}
+                  position={myPnl?.position}
                 />
               </CardContent>
             </Card>

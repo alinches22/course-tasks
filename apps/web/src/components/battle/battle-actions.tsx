@@ -10,17 +10,18 @@ import { cn } from '@/lib/utils/cn';
 
 interface BattleActionsProps {
   battleId: string;
-  isRunning: boolean;
+  isActive: boolean;
   currentPrice: number;
+  position?: string;
 }
 
-export function BattleActions({ battleId, isRunning, currentPrice }: BattleActionsProps) {
+export function BattleActions({ battleId, isActive, currentPrice, position = 'FLAT' }: BattleActionsProps) {
   const { addToast } = useToast();
   const [, submitAction] = useMutation(SUBMIT_ACTION);
-  const [isSubmitting, setIsSubmitting] = useState<'BUY' | 'SELL' | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState<'BUY' | 'SELL' | 'CLOSE' | null>(null);
 
-  const handleAction = async (type: 'BUY' | 'SELL') => {
-    if (!isRunning || isSubmitting) return;
+  const handleAction = async (type: 'BUY' | 'SELL' | 'CLOSE') => {
+    if (!isActive || isSubmitting) return;
 
     setIsSubmitting(type);
     try {
@@ -33,7 +34,9 @@ export function BattleActions({ battleId, isRunning, currentPrice }: BattleActio
       });
 
       if (result.error) throw new Error(result.error.message);
-      addToast('success', `${type} order executed at $${currentPrice.toFixed(2)}`);
+      
+      const actionLabel = type === 'CLOSE' ? 'Position closed' : `${type} order executed`;
+      addToast('success', `${actionLabel} at $${currentPrice.toFixed(2)}`);
     } catch (error) {
       addToast('error', error instanceof Error ? error.message : 'Failed to submit action');
     } finally {
@@ -41,13 +44,15 @@ export function BattleActions({ battleId, isRunning, currentPrice }: BattleActio
     }
   };
 
+  const hasPosition = position !== 'FLAT';
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <motion.div whileTap={{ scale: 0.98 }}>
           <Button
             onClick={() => handleAction('BUY')}
-            disabled={!isRunning || isSubmitting !== null}
+            disabled={!isActive || isSubmitting !== null}
             isLoading={isSubmitting === 'BUY'}
             className={cn(
               'w-full h-16 text-lg font-bold',
@@ -64,7 +69,7 @@ export function BattleActions({ battleId, isRunning, currentPrice }: BattleActio
         <motion.div whileTap={{ scale: 0.98 }}>
           <Button
             onClick={() => handleAction('SELL')}
-            disabled={!isRunning || isSubmitting !== null}
+            disabled={!isActive || isSubmitting !== null}
             isLoading={isSubmitting === 'SELL'}
             className={cn(
               'w-full h-16 text-lg font-bold',
@@ -79,9 +84,24 @@ export function BattleActions({ battleId, isRunning, currentPrice }: BattleActio
         </motion.div>
       </div>
 
-      {!isRunning && (
+      {/* Close position button */}
+      {hasPosition && (
+        <motion.div whileTap={{ scale: 0.98 }}>
+          <Button
+            onClick={() => handleAction('CLOSE')}
+            disabled={!isActive || isSubmitting !== null}
+            isLoading={isSubmitting === 'CLOSE'}
+            variant="outline"
+            className="w-full"
+          >
+            Close Position ({position})
+          </Button>
+        </motion.div>
+      )}
+
+      {!isActive && (
         <p className="text-center text-sm text-text-muted">
-          Actions disabled - battle not running
+          {position !== 'FLAT' ? `Position: ${position}` : 'Waiting for battle to start...'}
         </p>
       )}
     </div>

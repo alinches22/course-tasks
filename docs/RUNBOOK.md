@@ -290,6 +290,121 @@ const client = createClient({
 });
 ```
 
+## Testing Battle MVP Flow
+
+### Quick Test (Dev Auth)
+
+The API supports dev auth via `x-dev-user` header for quick testing without wallet:
+
+```bash
+# Terminal 1: Start infrastructure and API
+docker-compose up -d && pnpm dev:api
+
+# Terminal 2: Create DB and seed (one-time)
+pnpm db:migrate:dev && pnpm db:seed
+
+# Terminal 3: Start web
+pnpm dev:web
+```
+
+### Test via GraphQL Playground
+
+Open http://localhost:4000/graphql
+
+1. **List Scenarios**:
+
+```graphql
+query {
+  scenarios {
+    id
+    symbol
+    timeframe
+    tickCount
+    metadata {
+      name
+      difficulty
+    }
+  }
+}
+```
+
+2. **Create Battle (User A)** - Add header `x-dev-user: user-a`:
+
+```graphql
+mutation {
+  createBattle(input: { startingBalance: 10000 }) {
+    id
+    status
+    commitHash
+  }
+}
+```
+
+3. **Join Battle (User B)** - Change header to `x-dev-user: user-b`:
+
+```graphql
+mutation {
+  joinBattle(input: { battleId: "<BATTLE_ID>" }) {
+    id
+    status
+    participants {
+      side
+      user { id }
+    }
+  }
+}
+```
+
+4. **Subscribe to Ticks** (in separate tab):
+
+```graphql
+subscription {
+  battleTick(battleId: "<BATTLE_ID>") {
+    tick { close }
+    currentIndex
+    totalTicks
+    players {
+      oderId
+      pnl
+      position
+      side
+    }
+  }
+}
+```
+
+5. **Submit Actions** (as user-a or user-b):
+
+```graphql
+mutation {
+  submitAction(input: { 
+    battleId: "<BATTLE_ID>", 
+    type: BUY, 
+    quantity: 1 
+  })
+}
+```
+
+Action types: `BUY`, `SELL`, `CLOSE`
+
+### Full Web UI Test
+
+1. Open http://localhost:3000
+2. Connect wallet (or use dev mode)
+3. Go to Dashboard → select a scenario → Create Battle
+4. Open second browser/incognito → Join the battle
+5. Watch countdown → Battle starts automatically
+6. Click BUY/SELL buttons → PnL updates live
+7. Battle ends → Result modal shows winner
+
+### Simulating Second Player
+
+For single-browser testing, use GraphQL Playground to:
+1. Create battle in web UI
+2. Copy battle ID
+3. In Playground, set header `x-dev-user: opponent-test`
+4. Run `joinBattle` mutation
+
 ## Troubleshooting
 
 ### Port Already in Use

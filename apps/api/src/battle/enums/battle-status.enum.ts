@@ -3,7 +3,7 @@ import { registerEnumType } from '@nestjs/graphql';
 export enum BattleStatusEnum {
   WAITING = 'WAITING',
   MATCHED = 'MATCHED',
-  RUNNING = 'RUNNING',
+  ACTIVE = 'ACTIVE',
   FINISHED = 'FINISHED',
   CANCELED = 'CANCELED',
 }
@@ -16,6 +16,7 @@ registerEnumType(BattleStatusEnum, {
 export enum ActionTypeEnum {
   BUY = 'BUY',
   SELL = 'SELL',
+  CLOSE = 'CLOSE',
 }
 
 registerEnumType(ActionTypeEnum, {

@@ -172,6 +172,13 @@ export function BattleList({ filter }: BattleListProps) {
                         <Button size="sm">Enter Battle</Button>
                       </Link>
                     )}
+                    {(battle.status === 'ACTIVE' || battle.status === 'RUNNING') && (
+                      <Link href={ROUTES.BATTLE(battle.id)}>
+                        <Button size="sm" variant="secondary">
+                          Watch Live
+                        </Button>
+                      </Link>
+                    )}
                     {battle.status === 'FINISHED' && (
                       <Link href={ROUTES.REPLAY(battle.id)}>
                         <Button size="sm" variant="secondary">

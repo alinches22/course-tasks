@@ -43,12 +43,14 @@ model Nonce {
 // ===========================================
 
 model Scenario {
-  id        String   @id @default(uuid())
-  asset     String   // e.g., "BTC/USD", "ETH/USD"
-  timeframe String   // e.g., "5m"
-  ticks     Json     // Array of { ts: number, open: number, high: number, low: number, close: number, volume: number }
-  metadata  Json?    // Optional metadata (name, description, difficulty, etc.)
-  createdAt DateTime @default(now()) @map("created_at")
+  id             String   @id @default(uuid())
+  symbol         String   // e.g., "BTC/USD", "ETH/USD" (replaces asset for clarity)
+  asset          String   // e.g., "BTC/USD", "ETH/USD"
+  timeframe      String   // e.g., "5m"
+  tickIntervalMs Int      @default(2000) @map("tick_interval_ms") // Milliseconds between ticks
+  ticks          Json     // Array of { ts: number, open: number, high: number, low: number, close: number, volume: number }
+  metadata       Json?    // Optional metadata (name, description, difficulty, etc.)
+  createdAt      DateTime @default(now()) @map("created_at")
 
   // Relations
   battles Battle[]
@@ -63,17 +65,18 @@ model Scenario {
 enum BattleStatus {
   WAITING  // Created, waiting for opponent
   MATCHED  // Both players joined, countdown starting
-  RUNNING  // Battle in progress, ticks streaming
+  ACTIVE   // Battle in progress, ticks streaming
   FINISHED // Battle completed
   CANCELED // Battle canceled
 }
 
 model Battle {
-  id         String       @id @default(uuid())
-  status     BattleStatus @default(WAITING)
-  scenarioId String       @map("scenario_id")
-  commitHash String       @map("commit_hash") // sha256(scenarioId + salt)
-  revealSalt String?      @map("reveal_salt") // Revealed after battle ends
+  id               String       @id @default(uuid())
+  status           BattleStatus @default(WAITING)
+  scenarioId       String       @map("scenario_id")
+  commitHash       String       @map("commit_hash") // sha256(scenarioId + salt)
+  revealSalt       String?      @map("reveal_salt") // Revealed after battle ends
+  currentTickIndex Int          @default(0) @map("current_tick_index") // Current tick in the battle
 
   createdAt  DateTime  @default(now()) @map("created_at")
   matchedAt  DateTime? @map("matched_at")
@@ -103,6 +106,13 @@ model BattleParticipant {
   side            ParticipantSide
   startingBalance Decimal         @default(10000) @map("starting_balance") @db.Decimal(18, 8)
   currentBalance  Decimal         @default(10000) @map("current_balance") @db.Decimal(18, 8)
+  
+  // Position tracking
+  positionSize    Decimal         @default(0) @map("position_size") @db.Decimal(18, 8)   // +ve = long, -ve = short, 0 = flat
+  entryPrice      Decimal?        @map("entry_price") @db.Decimal(18, 8)                  // Average entry price
+  realizedPnl     Decimal         @default(0) @map("realized_pnl") @db.Decimal(18, 8)     // Closed position PnL
+  unrealizedPnl   Decimal         @default(0) @map("unrealized_pnl") @db.Decimal(18, 8)   // Open position PnL
+  
   createdAt       DateTime        @default(now()) @map("created_at")
 
   // Relations
@@ -121,6 +131,7 @@ model BattleParticipant {
 enum ActionType {
   BUY
   SELL
+  CLOSE
 }
 
 model Action {

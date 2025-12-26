@@ -59,6 +59,7 @@ export class BattleResolver {
     const battle = await this.battleService.createBattle(
       user.userId,
       input?.startingBalance || 10000,
+      input?.scenarioId,
     );
     return this.mapBattle(battle);
   }

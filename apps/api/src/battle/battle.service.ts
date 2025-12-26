@@ -99,9 +99,18 @@ export class BattleService {
     return { battles: resultBattles, nextCursor, hasMore };
   }
 
-  async createBattle(userId: string, startingBalance: number = 10000): Promise<BattleWithParticipants> {
-    // Select a random scenario
-    const scenario = await this.scenarioService.getRandomScenario();
+  async createBattle(
+    userId: string,
+    startingBalance: number = 10000,
+    scenarioId?: string,
+  ): Promise<BattleWithParticipants> {
+    // Select scenario (specific or random)
+    let scenario;
+    if (scenarioId) {
+      scenario = await this.scenarioService.findByIdOrThrow(scenarioId);
+    } else {
+      scenario = await this.scenarioService.getRandomScenario();
+    }
 
     // Generate commit hash for provably fair
     const salt = generateSalt();
@@ -199,7 +208,7 @@ export class BattleService {
   async updateStatus(battleId: string, status: BattleStatus): Promise<Battle> {
     const updateData: { status: BattleStatus; startedAt?: Date; finishedAt?: Date } = { status };
 
-    if (status === BattleStatus.RUNNING) {
+    if (status === BattleStatus.ACTIVE) {
       updateData.startedAt = new Date();
     } else if (status === BattleStatus.FINISHED) {
       updateData.finishedAt = new Date();
