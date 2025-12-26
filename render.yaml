@@ -1,0 +1,48 @@
+# Render Blueprint
+# https://render.com/docs/blueprint-spec
+
+services:
+  # API Service
+  - type: web
+    name: tradeversus-api
+    env: docker
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    region: oregon
+    plan: starter
+    healthCheckPath: /graphql?query=%7B__typename%7D
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tradeversus-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: tradeversus-redis
+          type: redis
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CORS_ORIGINS
+        sync: false # Set manually after deployment
+
+  # Redis Cache
+  - type: redis
+    name: tradeversus-redis
+    region: oregon
+    plan: starter
+    ipAllowList: []
+
+databases:
+  # PostgreSQL Database
+  - name: tradeversus-db
+    plan: starter
+    region: oregon
+    postgresMajorVersion: 15
+    ipAllowList: []

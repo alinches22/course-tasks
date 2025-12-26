@@ -1,0 +1,213 @@
+// TradeVersus Prisma Schema
+// PostgreSQL database schema for the trading battles platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===========================================
+// User & Authentication
+// ===========================================
+
+model User {
+  id        String   @id @default(uuid())
+  address   String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  participations   BattleParticipant[]
+  actions          Action[]
+  pointsLedger     PointsLedger[]
+  wonBattleResults BattleResult[]      @relation("Winner")
+
+  @@map("users")
+}
+
+model Nonce {
+  address   String   @id
+  nonce     String
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("nonces")
+}
+
+// ===========================================
+// Scenarios (Historical Price Data)
+// ===========================================
+
+model Scenario {
+  id             String   @id @default(uuid())
+  symbol         String   // e.g., "BTC/USD", "ETH/USD" (replaces asset for clarity)
+  asset          String   // e.g., "BTC/USD", "ETH/USD"
+  timeframe      String   // e.g., "5m"
+  tickIntervalMs Int      @default(2000) @map("tick_interval_ms") // Milliseconds between ticks
+  ticks          Json     // Array of { ts: number, open: number, high: number, low: number, close: number, volume: number }
+  metadata       Json?    // Optional metadata (name, description, difficulty, etc.)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  // Relations
+  battles Battle[]
+
+  @@map("scenarios")
+}
+
+// ===========================================
+// Battles
+// ===========================================
+
+enum BattleStatus {
+  WAITING  // Created, waiting for opponent
+  MATCHED  // Both players joined, countdown starting
+  ACTIVE   // Battle in progress, ticks streaming
+  FINISHED // Battle completed
+  CANCELED // Battle canceled
+}
+
+model Battle {
+  id               String       @id @default(uuid())
+  status           BattleStatus @default(WAITING)
+  scenarioId       String       @map("scenario_id")
+  commitHash       String       @map("commit_hash") // sha256(scenarioId + salt)
+  revealSalt       String?      @map("reveal_salt") // Revealed after battle ends
+  currentTickIndex Int          @default(0) @map("current_tick_index") // Current tick in the battle
+
+  // Locked params (immutable after MATCHED) for fairness & replay
+  tickIntervalMs     Int       @default(2000) @map("tick_interval_ms")    // Locked tick interval
+  startingBalance    Decimal   @default(10000) @map("starting_balance") @db.Decimal(18, 8) // Locked starting balance
+  totalTicks         Int       @default(30) @map("total_ticks")           // Total ticks (locked from scenario)
+  serverSeed         String?   @map("server_seed")                        // Random seed for determinism
+  
+  // Stake/pool system (offchain MVP)
+  stakeAmount        Decimal   @default(100) @map("stake_amount") @db.Decimal(18, 8)  // Points staked per player
+  feeBps             Int       @default(500) @map("fee_bps")                          // Fee in basis points (500 = 5%)
+  
+  createdAt  DateTime  @default(now()) @map("created_at")
+  matchedAt  DateTime? @map("matched_at")
+  startedAt  DateTime? @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+
+  // Relations
+  scenario     Scenario            @relation(fields: [scenarioId], references: [id])
+  participants BattleParticipant[]
+  actions      Action[]
+  result       BattleResult?
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("battles")
+}
+
+enum ParticipantSide {
+  A // Creator
+  B // Opponent
+}
+
+model BattleParticipant {
+  id              String          @id @default(uuid())
+  battleId        String          @map("battle_id")
+  userId          String          @map("user_id")
+  side            ParticipantSide
+  startingBalance Decimal         @default(10000) @map("starting_balance") @db.Decimal(18, 8)
+  currentBalance  Decimal         @default(10000) @map("current_balance") @db.Decimal(18, 8)
+  
+  // Position tracking
+  positionSize    Decimal         @default(0) @map("position_size") @db.Decimal(18, 8)   // +ve = long, -ve = short, 0 = flat
+  entryPrice      Decimal?        @map("entry_price") @db.Decimal(18, 8)                  // Average entry price
+  realizedPnl     Decimal         @default(0) @map("realized_pnl") @db.Decimal(18, 8)     // Closed position PnL
+  unrealizedPnl   Decimal         @default(0) @map("unrealized_pnl") @db.Decimal(18, 8)   // Open position PnL
+  
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  // Relations
+  battle Battle @relation(fields: [battleId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@unique([battleId, userId])
+  @@unique([battleId, side])
+  @@map("battle_participants")
+}
+
+// ===========================================
+// Actions (Trades)
+// ===========================================
+
+enum ActionType {
+  BUY
+  SELL
+  CLOSE
+}
+
+model Action {
+  id        String     @id @default(uuid())
+  battleId  String     @map("battle_id")
+  userId    String     @map("user_id")
+  type      ActionType
+  quantity  Decimal    @db.Decimal(18, 8)
+  price     Decimal    @db.Decimal(18, 8)
+  tickIndex Int        @map("tick_index")
+  serverTs  DateTime   @default(now()) @map("server_ts")
+
+  // Relations
+  battle Battle @relation(fields: [battleId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([battleId])
+  @@index([userId])
+  @@map("actions")
+}
+
+// ===========================================
+// Battle Results
+// ===========================================
+
+model BattleResult {
+  id           String   @id @default(uuid())
+  battleId     String   @unique @map("battle_id")
+  winnerUserId String?  @map("winner_user_id") // null = draw
+  pnlA         Decimal  @map("pnl_a") @db.Decimal(18, 8) // Side A PnL percentage
+  pnlB         Decimal  @map("pnl_b") @db.Decimal(18, 8) // Side B PnL percentage
+  finalizedAt  DateTime @default(now()) @map("finalized_at")
+
+  // Relations
+  battle Battle @relation(fields: [battleId], references: [id], onDelete: Cascade)
+  winner User?  @relation("Winner", fields: [winnerUserId], references: [id])
+
+  @@map("battle_results")
+}
+
+// ===========================================
+// Points System
+// ===========================================
+
+model PointsLedger {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  battleId  String?  @map("battle_id") // null for non-battle points (bonuses, etc.)
+  points    Int
+  reason    String   // WIN, LOSS, DRAW, PARTICIPATION, WEEKLY_POOL, etc.
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("points_ledger")
+}
+
+model WeeklyPool {
+  id            String    @id @default(uuid())
+  weekStart     DateTime  @unique @map("week_start")
+  totalFees     Decimal   @default(0) @map("total_fees") @db.Decimal(18, 8)
+  distributedAt DateTime? @map("distributed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@map("weekly_pools")
+}
