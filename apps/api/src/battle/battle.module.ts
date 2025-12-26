@@ -6,10 +6,11 @@ import { TickStreamerService } from './tick-streamer.service';
 import { ScenarioModule } from '../scenario/scenario.module';
 import { ActionModule } from '../action/action.module';
 import { PointsModule } from '../points/points.module';
+import { UserModule } from '../user/user.module';
 import { PubSubProvider } from '../graphql/pubsub.provider';
 
 @Module({
-  imports: [ScenarioModule, ActionModule, PointsModule],
+  imports: [ScenarioModule, ActionModule, PointsModule, UserModule],
   providers: [
     BattleService,
     BattleResolver,

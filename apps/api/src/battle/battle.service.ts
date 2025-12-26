@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ScenarioService } from '../scenario/scenario.service';
+import { UserService } from '../user/user.service';
 import { generateSalt, generateCommitHash } from '../common/utils/hash.util';
 import { Battle, BattleParticipant, BattleStatus, ParticipantSide } from '@prisma/client';
 
@@ -19,6 +20,7 @@ export class BattleService {
   constructor(
     private prisma: PrismaService,
     private scenarioService: ScenarioService,
+    private userService: UserService,
   ) {}
 
   async findById(id: string): Promise<BattleWithParticipants | null> {
@@ -103,7 +105,13 @@ export class BattleService {
     userId: string,
     startingBalance: number = 10000,
     scenarioId?: string,
+    userAddress?: string,
   ): Promise<BattleWithParticipants> {
+    // Ensure user exists (for dev auth support)
+    if (userAddress) {
+      await this.userService.ensureDevUser(userId, userAddress);
+    }
+
     // Select scenario (specific or random)
     let scenario;
     if (scenarioId) {
@@ -150,7 +158,12 @@ export class BattleService {
     return battle;
   }
 
-  async joinBattle(battleId: string, userId: string): Promise<BattleWithParticipants> {
+  async joinBattle(battleId: string, userId: string, userAddress?: string): Promise<BattleWithParticipants> {
+    // Ensure user exists (for dev auth support)
+    if (userAddress) {
+      await this.userService.ensureDevUser(userId, userAddress);
+    }
+
     const battle = await this.findByIdOrThrow(battleId);
 
     if (battle.status !== BattleStatus.WAITING) {

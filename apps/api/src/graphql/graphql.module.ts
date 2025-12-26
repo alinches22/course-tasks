@@ -32,6 +32,18 @@ import { AuthService } from '../auth/auth.service';
             path: '/graphql',
             onConnect: async (context: { connectionParams?: Record<string, unknown> }) => {
               const { connectionParams } = context;
+              
+              // Support dev user via connectionParams (for testing)
+              const devUser = connectionParams?.['x-dev-user'] as string;
+              if (devUser) {
+                return {
+                  user: {
+                    userId: devUser,
+                    address: `0x${devUser.padStart(40, '0')}`,
+                  },
+                };
+              }
+              
               const authorization =
                 (connectionParams?.authorization as string) || (connectionParams?.Authorization as string);
 

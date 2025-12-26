@@ -12,6 +12,36 @@ export class UserService {
     });
   }
 
+  /**
+   * Ensure a dev user exists - creates if not found
+   */
+  async ensureDevUser(userId: string, address: string): Promise<User> {
+    const existing = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (existing) {
+      return existing;
+    }
+
+    // Also check by address
+    const byAddress = await this.prisma.user.findUnique({
+      where: { address: address.toLowerCase() },
+    });
+
+    if (byAddress) {
+      return byAddress;
+    }
+
+    // Create new dev user
+    return this.prisma.user.create({
+      data: {
+        id: userId,
+        address: address.toLowerCase(),
+      },
+    });
+  }
+
   async findByIdOrThrow(id: string): Promise<User> {
     const user = await this.findById(id);
     if (!user) {

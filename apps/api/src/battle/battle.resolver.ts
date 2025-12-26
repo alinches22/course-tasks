@@ -60,6 +60,7 @@ export class BattleResolver {
       user.userId,
       input?.startingBalance || 10000,
       input?.scenarioId,
+      user.address, // Pass address for dev user creation
     );
     return this.mapBattle(battle);
   }
@@ -69,7 +70,7 @@ export class BattleResolver {
     @Args('input') input: JoinBattleInput,
     @CurrentUser() user: CurrentUserPayload,
   ): Promise<BattleModel> {
-    const battle = await this.battleService.joinBattle(input.battleId, user.userId);
+    const battle = await this.battleService.joinBattle(input.battleId, user.userId, user.address);
 
     // Start the battle engine
     setImmediate(() => {

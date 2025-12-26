@@ -240,7 +240,7 @@ mutation SubmitAction($input: SubmitActionInput!) {
 ### Subscriptions (WebSocket)
 
 ```graphql
-# Subscribe to battle ticks
+# Subscribe to battle ticks (includes live PnL for both players)
 subscription BattleTick($battleId: ID!) {
   battleTick(battleId: $battleId) {
     battleId
@@ -248,6 +248,12 @@ subscription BattleTick($battleId: ID!) {
     currentIndex
     totalTicks
     timeRemaining
+    players {
+      oderId
+      pnl
+      position
+      side
+    }
   }
 }
 
