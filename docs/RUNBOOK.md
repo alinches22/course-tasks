@@ -124,6 +124,41 @@ docker-compose up -d && pnpm install && pnpm db:generate && pnpm db:migrate:dev 
 ### Web
 
 - Application: http://localhost:3000
+- Landing Page: http://localhost:3000/
+- Dashboard: http://localhost:3000/app
+- Battle: http://localhost:3000/battle/[id]
+- Replay: http://localhost:3000/replay/[id]
+
+## Frontend Architecture
+
+### Routes
+
+| Route | Description |
+|-------|-------------|
+| `/` | Landing page with animated chart background, hero, how-it-works, FAQ |
+| `/app` | Dashboard with battle list, stats, create battle form |
+| `/battle/[id]` | Live battle view with chart, actions, timer |
+| `/replay/[id]` | Battle replay with timeline scrubbing, verification |
+
+### Key Components
+
+- **Providers** (`src/app/providers.tsx`): WagmiProvider, QueryClient, UrqlProvider, ToastProvider
+- **Layout** (`src/app/layout.tsx`): Header, Footer, Tailwind CSS, dark theme
+- **GraphQL Client** (`src/lib/graphql/client.ts`): urql + graphql-ws with token management
+- **Wallet Config** (`src/lib/wagmi/config.ts`): Multi-chain support (ETH, Polygon, Arbitrum, etc.)
+- **Auth Store** (`src/stores/auth.store.ts`): Zustand store with persistence
+- **Battle Store** (`src/stores/battle.store.ts`): Real-time battle state management
+
+### UI Components
+
+All UI components in `src/components/ui/`:
+- Button (with loading, variants)
+- Card (elevated, glass, outline)
+- Modal (animated)
+- Toast (success, error, warning, info)
+- Badge (status indicators)
+- Input (with icons, validation)
+- Skeleton (loading states)
 
 ## GraphQL API Overview
 
