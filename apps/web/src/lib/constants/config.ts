@@ -5,8 +5,10 @@ export const APP_CONFIG = {
 } as const;
 
 export const API_CONFIG = {
-  url: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000',
-  wsUrl: process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:4000/graphql',
+  url: process.env.NEXT_PUBLIC_API_HTTP || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000',
+  wsUrl: process.env.NEXT_PUBLIC_API_WS 
+    ? `${process.env.NEXT_PUBLIC_API_WS}/graphql` 
+    : process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:4000/graphql',
   graphqlPath: '/graphql',
 } as const;
 

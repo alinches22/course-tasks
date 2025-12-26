@@ -166,6 +166,8 @@ export class BattleResolver {
       scenarioId: isFinished ? battle.scenarioId : undefined,
       asset: battle.scenario?.asset,
       timeframe: battle.scenario?.timeframe,
+      stakeAmount: Number(battle.stakeAmount) || 100,
+      feeBps: battle.feeBps || 500,
       participants: battle.participants.map((p: any) => ({
         id: p.id,
         side: p.side as ParticipantSideEnum,

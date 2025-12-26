@@ -44,5 +44,27 @@ export const GET_MY_STATS = gql`
       totalPoints
       weeklyPoints
     }
+    myTotalPoints
+  }
+`;
+
+export const GET_WEEKLY_POOL = gql`
+  query GetWeeklyPool {
+    weeklyPool {
+      id
+      weekStart
+      totalFees
+      distributedAt
+    }
+  }
+`;
+
+export const GET_LEADERBOARD = gql`
+  query GetLeaderboard($take: Int) {
+    leaderboard(take: $take) {
+      rank
+      userId
+      totalPoints
+    }
   }
 `;

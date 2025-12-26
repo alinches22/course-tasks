@@ -1,0 +1,32 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "cd ../.. && pnpm install && pnpm --filter @tradeversus/web build",
+  "outputDirectory": ".next",
+  "installCommand": "echo 'Skip install - handled in buildCommand'",
+  "regions": ["iad1"],
+  "env": {
+    "NEXT_PUBLIC_API_HTTP": "@api_http_url",
+    "NEXT_PUBLIC_API_WS": "@api_ws_url",
+    "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID": "@walletconnect_project_id"
+  },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        }
+      ]
+    }
+  ]
+}

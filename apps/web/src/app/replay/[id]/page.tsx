@@ -160,7 +160,7 @@ export default function ReplayPage() {
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   {replay.participants.map((p: any) => {
-                    const isWinner = p.oderId === replay.result.winnerId;
+                    const isWinner = p.userId === replay.result.winnerId;
                     return (
                       <div
                         key={p.oderId}

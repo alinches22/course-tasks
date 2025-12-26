@@ -1,78 +1,92 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ConfigService } from '../config/config.service';
 import { getWeekStart } from '../common/utils/time.util';
 import { PointsLedger, WeeklyPool } from '@prisma/client';
-
-// Points configuration
-const WIN_POINTS = 100;
-const LOSS_POINTS = 25;
-const DRAW_POINTS = 50;
-const PNL_BONUS_MULTIPLIER = 10;
-const MAX_PNL_BONUS = 50;
 
 @Injectable()
 export class PointsService {
   constructor(
     private prisma: PrismaService,
-    private configService: ConfigService,
   ) {}
 
   /**
-   * Award points after a battle
+   * Award points after a battle using winner-takes-all logic
+   * Winner gets: 2 * stake - fee
+   * Loser gets: 0
+   * Draw: each gets stake back (no fee)
    */
   async awardBattlePoints(
     userId: string,
     battleId: string,
     isWinner: boolean,
     isDraw: boolean,
-    pnlPercent: number,
+    _pnlPercent: number,
   ): Promise<number> {
-    let basePoints: number;
+    // Get battle to read stake and fee
+    const battle = await this.prisma.battle.findUnique({
+      where: { id: battleId },
+    });
+
+    if (!battle) return 0;
+
+    const stake = Number(battle.stakeAmount);
+    const feeBps = battle.feeBps;
+    const feePercent = feeBps / 10000; // Convert basis points to decimal
+
+    let points: number;
     let reason: string;
 
     if (isDraw) {
-      basePoints = DRAW_POINTS;
+      // Draw: return stake (no fee)
+      points = stake;
       reason = 'DRAW';
     } else if (isWinner) {
-      basePoints = WIN_POINTS;
+      // Winner: 2 * stake - fee
+      const totalPool = stake * 2;
+      const fee = totalPool * feePercent;
+      points = Math.floor(totalPool - fee);
       reason = 'WIN';
+
+      // Add fee to weekly pool
+      await this.addToWeeklyPool(fee);
     } else {
-      basePoints = LOSS_POINTS;
+      // Loser: 0 points
+      points = 0;
       reason = 'LOSS';
     }
-
-    // Calculate PnL bonus (only for positive PnL)
-    let pnlBonus = 0;
-    if (pnlPercent > 0) {
-      pnlBonus = Math.min(Math.floor(pnlPercent * PNL_BONUS_MULTIPLIER), MAX_PNL_BONUS);
-    }
-
-    const totalPoints = basePoints + pnlBonus;
 
     // Record in ledger
     await this.prisma.pointsLedger.create({
       data: {
         userId,
         battleId,
-        points: totalPoints,
-        reason: pnlBonus > 0 ? `${reason}_WITH_BONUS` : reason,
+        points,
+        reason: `${reason}_STAKE`,
       },
     });
 
-    // Add to weekly pool
-    await this.addToWeeklyPool(totalPoints);
-
-    return totalPoints;
+    return points;
   }
 
   /**
-   * Add points to weekly pool
+   * Record stake deposit when joining a battle
    */
-  private async addToWeeklyPool(points: number): Promise<void> {
+  async recordStakeDeposit(userId: string, battleId: string, amount: number): Promise<void> {
+    await this.prisma.pointsLedger.create({
+      data: {
+        userId,
+        battleId,
+        points: -amount, // Negative = deducted
+        reason: 'STAKE_DEPOSIT',
+      },
+    });
+  }
+
+  /**
+   * Add fee to weekly pool
+   */
+  private async addToWeeklyPool(feeAmount: number): Promise<void> {
     const weekStart = getWeekStart();
-    const feePercent = this.configService.weeklyPoolPercent / 100;
-    const feeAmount = points * feePercent;
 
     await this.prisma.weeklyPool.upsert({
       where: { weekStart },
@@ -89,7 +103,7 @@ export class PointsService {
   }
 
   /**
-   * Get total points for a user
+   * Get total points (balance) for a user
    */
   async getTotalPoints(userId: string): Promise<number> {
     const result = await this.prisma.pointsLedger.aggregate({
@@ -133,9 +147,19 @@ export class PointsService {
   }
 
   /**
+   * Get all weekly pools (history)
+   */
+  async getWeeklyPoolHistory(take: number = 10): Promise<WeeklyPool[]> {
+    return this.prisma.weeklyPool.findMany({
+      orderBy: { weekStart: 'desc' },
+      take,
+    });
+  }
+
+  /**
    * Get leaderboard
    */
-  async getLeaderboard(take: number = 100): Promise<{ userId: string; totalPoints: number }[]> {
+  async getLeaderboard(take: number = 100): Promise<{ userId: string; totalPoints: number; user?: { id: string; address: string } }[]> {
     const result = await this.prisma.pointsLedger.groupBy({
       by: ['userId'],
       _sum: { points: true },
@@ -145,9 +169,39 @@ export class PointsService {
       take,
     });
 
+    // Get user details
+    const userIds = result.map((r) => r.userId);
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, address: true },
+    });
+
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
     return result.map((r) => ({
       userId: r.userId,
       totalPoints: r._sum.points || 0,
+      user: userMap.get(r.userId),
     }));
+  }
+
+  /**
+   * Give initial points to new user (signup bonus)
+   */
+  async giveSignupBonus(userId: string, amount: number = 1000): Promise<void> {
+    // Check if user already has any entries
+    const existing = await this.prisma.pointsLedger.findFirst({
+      where: { userId },
+    });
+
+    if (!existing) {
+      await this.prisma.pointsLedger.create({
+        data: {
+          userId,
+          points: amount,
+          reason: 'SIGNUP_BONUS',
+        },
+      });
+    }
   }
 }

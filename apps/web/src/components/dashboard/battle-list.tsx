@@ -106,6 +106,9 @@ export function BattleList({ filter }: BattleListProps) {
                   <div className="flex items-center gap-3">
                     <span className="text-lg font-semibold text-text-primary">{battle.asset}</span>
                     <span className="text-sm text-text-muted">{battle.timeframe}</span>
+                    <span className="px-2 py-0.5 rounded bg-accent-green/10 text-accent-green text-xs font-medium">
+                      {battle.stakeAmount || 100} pts
+                    </span>
                   </div>
                   <StatusBadge status={battle.status} />
                 </div>

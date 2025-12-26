@@ -1,4 +1,4 @@
-import { Resolver, Query, Args, Int } from '@nestjs/graphql';
+import { Resolver, Query, Args, Int, Mutation } from '@nestjs/graphql';
 import { UseGuards } from '@nestjs/common';
 import { PointsService } from './points.service';
 import { PointsHistoryModel, WeeklyPoolModel, LeaderboardEntryModel } from './models/points-ledger.model';
@@ -48,6 +48,24 @@ export class PointsResolver {
     };
   }
 
+  @Query(() => WeeklyPoolModel, { nullable: true, description: 'Alias for currentWeeklyPool' })
+  async weeklyPool(): Promise<WeeklyPoolModel | null> {
+    return this.currentWeeklyPool();
+  }
+
+  @Query(() => [WeeklyPoolModel], { description: 'Get weekly pool history' })
+  async weeklyPoolHistory(
+    @Args('take', { type: () => Int, nullable: true }) take?: number,
+  ): Promise<WeeklyPoolModel[]> {
+    const pools = await this.pointsService.getWeeklyPoolHistory(take || 10);
+    return pools.map((pool) => ({
+      id: pool.id,
+      weekStart: pool.weekStart,
+      totalFees: Number(pool.totalFees),
+      distributedAt: pool.distributedAt ?? undefined,
+    }));
+  }
+
   @Query(() => [LeaderboardEntryModel], { description: 'Get points leaderboard' })
   async leaderboard(
     @Args('take', { type: () => Int, nullable: true }) take?: number,
@@ -58,5 +76,11 @@ export class PointsResolver {
       userId: e.userId,
       totalPoints: e.totalPoints,
     }));
+  }
+
+  @Mutation(() => Boolean, { description: 'Claim signup bonus (once per user)' })
+  async claimSignupBonus(@CurrentUser() user: CurrentUserPayload): Promise<boolean> {
+    await this.pointsService.giveSignupBonus(user.userId);
+    return true;
   }
 }

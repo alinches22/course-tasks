@@ -9,6 +9,8 @@ export const GET_BATTLES = gql`
         commitHash
         asset
         timeframe
+        stakeAmount
+        feeBps
         participants {
           id
           side

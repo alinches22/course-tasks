@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { ScenarioService } from '../scenario/scenario.service';
 import { UserService } from '../user/user.service';
+import { PointsService } from '../points/points.service';
 import { generateSalt, generateCommitHash, generateServerSeed } from '../common/utils/hash.util';
 import { Battle, BattleParticipant, BattleStatus, ParticipantSide } from '@prisma/client';
 
@@ -15,12 +16,17 @@ export interface BattleWithParticipants extends Battle {
   scenario?: { asset: string; timeframe: string };
 }
 
+// Default stake amount for battles
+const DEFAULT_STAKE = 100;
+const DEFAULT_FEE_BPS = 500; // 5%
+
 @Injectable()
 export class BattleService {
   constructor(
     private prisma: PrismaService,
     private scenarioService: ScenarioService,
     private userService: UserService,
+    private pointsService: PointsService,
   ) {}
 
   async findById(id: string): Promise<BattleWithParticipants | null> {
@@ -106,10 +112,17 @@ export class BattleService {
     startingBalance: number = 10000,
     scenarioId?: string,
     userAddress?: string,
+    stakeAmount: number = DEFAULT_STAKE,
   ): Promise<BattleWithParticipants> {
     // Ensure user exists (for dev auth support)
     if (userAddress) {
       await this.userService.ensureDevUser(userId, userAddress);
+    }
+
+    // Check if user has enough balance
+    const userBalance = await this.pointsService.getTotalPoints(userId);
+    if (userBalance < stakeAmount) {
+      throw new BadRequestException(`Insufficient balance. You have ${userBalance} points but need ${stakeAmount}`);
     }
 
     // Select scenario (specific or random)
@@ -140,6 +153,9 @@ export class BattleService {
         tickIntervalMs: (scenario as any).tickIntervalMs || 2000,
         startingBalance,
         totalTicks: ticks.length,
+        // Stake/pool params
+        stakeAmount,
+        feeBps: DEFAULT_FEE_BPS,
         participants: {
           create: {
             userId,
@@ -163,6 +179,9 @@ export class BattleService {
         },
       },
     });
+
+    // Deduct stake from user's balance
+    await this.pointsService.recordStakeDeposit(userId, battle.id, stakeAmount);
 
     return battle;
   }
@@ -188,6 +207,15 @@ export class BattleService {
     // Check if battle already has 2 participants
     if (battle.participants.length >= 2) {
       throw new BadRequestException('Battle is full');
+    }
+
+    // Get stake amount from battle
+    const stakeAmount = Number(battle.stakeAmount);
+
+    // Check if user has enough balance
+    const userBalance = await this.pointsService.getTotalPoints(userId);
+    if (userBalance < stakeAmount) {
+      throw new BadRequestException(`Insufficient balance. You have ${userBalance} points but need ${stakeAmount}`);
     }
 
     // Get starting balance from first participant
@@ -223,6 +251,9 @@ export class BattleService {
         },
       },
     });
+
+    // Deduct stake from user's balance
+    await this.pointsService.recordStakeDeposit(userId, battleId, stakeAmount);
 
     return updatedBattle;
   }

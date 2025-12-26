@@ -46,6 +46,12 @@ export class BattleModel {
   @Field(() => String, { nullable: true })
   timeframe?: string;
 
+  @Field(() => Number, { description: 'Points staked per player' })
+  stakeAmount: number;
+
+  @Field(() => Number, { description: 'Fee in basis points (500 = 5%)' })
+  feeBps: number;
+
   @Field(() => [BattleParticipantModel])
   participants: BattleParticipantModel[];
 

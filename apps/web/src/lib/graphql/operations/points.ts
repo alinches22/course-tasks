@@ -11,7 +11,7 @@ export const GET_MY_POINTS_HISTORY = gql`
     myPointsHistory(take: $take, cursor: $cursor) {
       entries {
         id
-        oderId
+        userId
         battleId
         points
         reason
@@ -22,23 +22,4 @@ export const GET_MY_POINTS_HISTORY = gql`
   }
 `;
 
-export const GET_LEADERBOARD = gql`
-  query GetLeaderboard($take: Int) {
-    leaderboard(take: $take) {
-      rank
-      oderId
-      totalPoints
-    }
-  }
-`;
-
-export const GET_WEEKLY_POOL = gql`
-  query GetWeeklyPool {
-    currentWeeklyPool {
-      id
-      weekStart
-      totalFees
-      distributedAt
-    }
-  }
-`;
+// GET_LEADERBOARD and GET_WEEKLY_POOL are defined in auth.ts

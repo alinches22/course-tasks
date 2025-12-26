@@ -152,7 +152,19 @@ export default function BattlePage() {
   if (!battle) {
     return (
       <div className="max-w-6xl mx-auto px-4 py-8 text-center">
-        <p className="text-text-secondary">Battle not found</p>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-accent-red/10 flex items-center justify-center">
+            <svg className="w-8 h-8 text-accent-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-bold text-text-primary mb-2">Battle Not Found</h2>
+          <p className="text-text-secondary mb-4">This battle may have been cancelled or does not exist.</p>
+          <a href="/app" className="text-accent-green hover:underline">Return to Dashboard</a>
+        </motion.div>
       </div>
     );
   }
@@ -162,6 +174,8 @@ export default function BattlePage() {
   const lastTick = ticks[ticks.length - 1];
   const currentPrice = lastTick?.close ?? 0;
   const isActive = status === 'ACTIVE';
+  const isWaiting = status === 'WAITING';
+  const isMatched = status === 'MATCHED';
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
@@ -201,15 +215,25 @@ export default function BattlePage() {
             {/* Timer / Countdown */}
             <Card>
               <CardContent className="p-4">
-                <BattleTimer
-                  timeRemaining={timeRemaining}
-                  totalTicks={totalTicks}
-                  currentIndex={currentIndex}
-                  status={status}
-                  countdown={countdown}
-                />
-                {message && (
-                  <p className="text-center text-sm text-accent-green mt-2">{message}</p>
+                {isWaiting ? (
+                  <div className="text-center py-4">
+                    <div className="w-12 h-12 mx-auto mb-3 rounded-full border-2 border-accent-yellow/30 border-t-accent-yellow animate-spin" />
+                    <p className="text-lg font-bold text-text-primary mb-1">Waiting for Opponent</p>
+                    <p className="text-sm text-text-muted">Share the battle link to invite someone</p>
+                  </div>
+                ) : (
+                  <>
+                    <BattleTimer
+                      timeRemaining={timeRemaining}
+                      totalTicks={totalTicks}
+                      currentIndex={currentIndex}
+                      status={status}
+                      countdown={countdown}
+                    />
+                    {message && (
+                      <p className="text-center text-sm text-accent-green mt-2">{message}</p>
+                    )}
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -217,7 +241,7 @@ export default function BattlePage() {
             {/* Player PnLs */}
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Live PnL</CardTitle>
+                <CardTitle className="text-sm">Players</CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
                 <div className="space-y-3">
@@ -225,6 +249,7 @@ export default function BattlePage() {
                     const pnlData = playerPnls.find((pl) => pl.oderId === p.user.id);
                     const isMe = p.user.id === user?.id;
                     const pnl = pnlData?.pnl ?? 0;
+                    const hasData = isActive && playerPnls.length > 0;
                     
                     return (
                       <div
@@ -235,36 +260,63 @@ export default function BattlePage() {
                         )}
                       >
                         <div className="flex items-center gap-2">
-                          <div
-                            className={cn(
-                              'w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold',
-                              p.side === 'A'
-                                ? 'bg-accent-blue/20 text-accent-blue'
-                                : 'bg-accent-purple/20 text-accent-purple'
+                          <div className="relative">
+                            <div
+                              className={cn(
+                                'w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold',
+                                p.side === 'A'
+                                  ? 'bg-accent-blue/20 text-accent-blue'
+                                  : 'bg-accent-purple/20 text-accent-purple'
+                              )}
+                            >
+                              {p.side}
+                            </div>
+                            {/* Online indicator */}
+                            {(isMatched || isActive) && (
+                              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-accent-green rounded-full border-2 border-background-primary" />
                             )}
-                          >
-                            {p.side}
                           </div>
                           <div>
                             <p className="text-sm font-medium text-text-primary">
                               {isMe ? 'You' : 'Opponent'}
                             </p>
                             <p className="text-xs text-text-muted">
-                              {pnlData?.position || 'FLAT'}
+                              {hasData ? (pnlData?.position || 'FLAT') : (isMatched ? 'Ready' : 'Connected')}
                             </p>
                           </div>
                         </div>
-                        <div
-                          className={cn(
-                            'text-lg font-bold number-ticker',
-                            pnl >= 0 ? 'text-accent-green' : 'text-accent-red'
-                          )}
-                        >
-                          {formatPercentage(pnl)}
-                        </div>
+                        {hasData ? (
+                          <div
+                            className={cn(
+                              'text-lg font-bold number-ticker',
+                              pnl >= 0 ? 'text-accent-green' : 'text-accent-red'
+                            )}
+                          >
+                            {formatPercentage(pnl)}
+                          </div>
+                        ) : (
+                          <span className="text-sm text-text-muted">--</span>
+                        )}
                       </div>
                     );
                   })}
+                  
+                  {/* Show placeholder for missing opponent */}
+                  {isWaiting && battle.participants.length < 2 && (
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-surface border border-dashed border-border">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-full bg-surface-hover flex items-center justify-center">
+                          <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                          </svg>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-text-muted">Waiting...</p>
+                          <p className="text-xs text-text-muted">Opponent will join soon</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

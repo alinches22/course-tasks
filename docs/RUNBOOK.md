@@ -533,7 +533,138 @@ After battle finishes:
 - Commit hash can be verified: `sha256(scenarioId:revealSalt) === commitHash`
 - Full tick data available for replay
 
+## Points & Stake System
+
+### Balance System
+
+- New users receive **1,000 points** signup bonus
+- Points are used to enter battles (stake)
+- Current balance shown on dashboard
+
+### Battle Stakes
+
+Each battle has:
+- `stakeAmount` - Points per player (default: 100)
+- `feeBps` - Platform fee in basis points (default: 500 = 5%)
+
+### Winner-Takes-All Logic
+
+- **Winner**: Gets `2 × stake - fee`
+- **Loser**: Gets 0 points
+- **Draw**: Each gets stake back (no fee)
+
+### Weekly Pool
+
+- Platform fees accumulate in weekly pool
+- Query with `weeklyPool` GraphQL query
+- View pool history with `weeklyPoolHistory`
+
+### Ledger System
+
+All point movements tracked in `points_ledger` table:
+- `SIGNUP_BONUS` - Initial signup credits
+- `STAKE_DEPOSIT` - Deducted when joining battle
+- `WIN_STAKE` - Winner payout
+- `LOSS_STAKE` - Loser record (0 points)
+- `DRAW` - Draw payout
+
+## Replay System
+
+### View Replay
+
+Navigate to `/replay/[battleId]` after battle finishes.
+
+### Replay API
+
+```graphql
+query {
+  replay(battleId: "<ID>") {
+    asset
+    timeframe
+    ticks {
+      ts
+      open
+      high
+      low
+      close
+      volume
+    }
+    actions {
+      userId
+      type
+      price
+      tickIndex
+      serverTs
+    }
+    participants {
+      userId
+      address
+      side
+      finalPnl
+    }
+    result {
+      winnerId
+      isDraw
+      pnlA
+      pnlB
+    }
+    verification {
+      scenarioId
+      revealSalt
+      commitHash
+      isValid
+    }
+  }
+}
+```
+
+### Replay Features
+
+- Timeline scrubber with play/pause
+- Playback speed control (0.5x - 4x)
+- Action markers on chart (BUY/SELL/CLOSE)
+- Provably fair verification
+
 ## Troubleshooting
+
+### Common Issues
+
+#### "Insufficient balance" when creating/joining battle
+
+**Cause**: User doesn't have enough points to stake.
+
+**Fix**: 
+1. Check user's balance with `myTotalPoints` query
+2. New users need to claim signup bonus (automatic on first login)
+3. For testing, reduce stake amount in battle creation
+
+#### Battle stuck in WAITING
+
+**Cause**: Second player hasn't joined yet.
+
+**Fix**:
+1. Copy battle ID and share with opponent
+2. For testing, use `x-dev-user` header with different user ID
+3. Check battle status with `battle(id: "<ID>")` query
+
+#### Subscription not receiving updates
+
+**Cause**: WebSocket connection or auth issue.
+
+**Fix**:
+1. Check WebSocket URL is correct (`ws://localhost:4000/graphql`)
+2. Verify token/auth is passed in `connectionParams`
+3. Check browser console for connection errors
+4. Ensure battle ID is correct
+
+#### "Rate limit exceeded"
+
+**Cause**: Too many actions submitted too quickly.
+
+**Fix**:
+1. Wait 1 second between actions
+2. Max 3 actions per second allowed
+3. Can't submit same action type on same tick
 
 ### Port Already in Use
 
@@ -567,6 +698,9 @@ pnpm db:generate
 
 # Reset database (⚠️ deletes all data)
 pnpm db:reset
+
+# If migration errors
+cd apps/api && npx prisma migrate reset --force
 ```
 
 ### Redis Connection Issues
@@ -577,6 +711,9 @@ docker logs tradeversus-redis
 
 # Test connection
 docker exec tradeversus-redis redis-cli ping
+
+# Flush Redis (clears all data)
+docker exec tradeversus-redis redis-cli FLUSHALL
 ```
 
 ### GraphQL Schema Not Updating
@@ -584,6 +721,27 @@ docker exec tradeversus-redis redis-cli ping
 ```bash
 # Restart the API server
 # The schema.gql file is auto-generated on startup
+
+# Or manually generate
+cd apps/api && pnpm build
+```
+
+### WebSocket Connection Fails
+
+**Check**: 
+1. API is running on correct port
+2. CORS settings allow your origin
+3. `graphql-ws` protocol is used (not legacy subscriptions-transport-ws)
+
+```javascript
+// Correct client setup
+import { createClient } from 'graphql-ws';
+const client = createClient({
+  url: 'ws://localhost:4000/graphql',
+  connectionParams: {
+    authorization: 'Bearer <token>',  // or x-dev-user for dev
+  },
+});
 ```
 
 ## Environment Variables
@@ -610,22 +768,86 @@ docker exec tradeversus-redis redis-cli ping
 
 ## Production Deployment
 
+### Option 1: Vercel + Railway (Recommended)
+
+#### Web (Vercel)
+
+1. **Connect Repository**:
+   - Go to [vercel.com](https://vercel.com)
+   - Import your GitHub repository
+   - Select `apps/web` as root directory
+
+2. **Configure Environment Variables**:
+   ```
+   NEXT_PUBLIC_API_HTTP=https://your-api.railway.app
+   NEXT_PUBLIC_API_WS=wss://your-api.railway.app
+   NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_project_id
+   ```
+
+3. **Deploy**: Vercel auto-deploys on push to main
+
+#### API (Railway)
+
+1. **Create Project**:
+   - Go to [railway.app](https://railway.app)
+   - Create new project from GitHub
+
+2. **Add Services**:
+   - PostgreSQL database
+   - Redis cache
+   - API service (uses Dockerfile)
+
+3. **Configure Environment Variables**:
+   ```
+   NODE_ENV=production
+   DATABASE_URL=${{Postgres.DATABASE_URL}}
+   REDIS_URL=${{Redis.REDIS_URL}}
+   JWT_SECRET=your_strong_secret_min_32_chars
+   JWT_EXPIRES_IN=7d
+   CORS_ORIGINS=https://your-app.vercel.app
+   ```
+
+4. **Set Custom Domain** (optional)
+
+### Option 2: Render
+
+1. **Deploy via Blueprint**:
+   - Go to [render.com](https://render.com)
+   - New Blueprint → Connect repository
+   - Uses `render.yaml` in root
+
+2. **After Deployment**:
+   - Set `CORS_ORIGINS` environment variable
+   - Note the API URL for web app config
+
+### Option 3: Docker Compose (Self-hosted)
+
+```bash
+# Build and start all services
+docker-compose -f docker-compose.prod.yml up -d
+```
+
+### Environment Variables (Production)
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `NODE_ENV` | Environment mode | `production` |
+| `DATABASE_URL` | PostgreSQL connection | `postgresql://user:pass@host:5432/db` |
+| `REDIS_URL` | Redis connection | `redis://host:6379` |
+| `JWT_SECRET` | JWT signing secret (32+ chars) | `your_strong_secret_here...` |
+| `JWT_EXPIRES_IN` | Token expiry | `7d` |
+| `CORS_ORIGINS` | Allowed origins (comma-separated) | `https://app.tradeversus.com` |
+| `NEXT_PUBLIC_API_HTTP` | API URL (web) | `https://api.tradeversus.com` |
+| `NEXT_PUBLIC_API_WS` | WebSocket URL (web) | `wss://api.tradeversus.com` |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | WalletConnect ID | `abc123...` |
+
 ### Build
 
 ```bash
 pnpm build
 ```
 
-### Environment
-
-Ensure production environment variables are set:
-
-- `NODE_ENV=production`
-- `DATABASE_URL` - Production database URL
-- `REDIS_URL` - Production Redis URL
-- `JWT_SECRET` - Strong, unique secret (32+ characters)
-
-### Start
+### Start (Manual)
 
 ```bash
 # API
@@ -634,6 +856,16 @@ cd apps/api && pnpm start:prod
 # Web
 cd apps/web && pnpm start
 ```
+
+### Post-Deployment Checklist
+
+1. ✅ Verify API health: `curl https://api.your-domain.com/graphql?query=%7B__typename%7D`
+2. ✅ Verify web app loads
+3. ✅ Test wallet connection
+4. ✅ Create test battle
+5. ✅ Verify real-time subscriptions work
+6. ✅ Complete a full battle flow
+7. ✅ Check replay works
 
 ## Health Checks
 

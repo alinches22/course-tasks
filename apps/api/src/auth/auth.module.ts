@@ -8,6 +8,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { ConfigModule } from '../config/config.module';
 import { ConfigService } from '../config/config.service';
 import { UserModule } from '../user/user.module';
+import { PointsModule } from '../points/points.module';
 
 // Provider for dev mode detection (used by JwtAuthGuard)
 const IsDevModeProvider = {
@@ -31,6 +32,7 @@ const IsDevModeProvider = {
       }),
     }),
     forwardRef(() => UserModule),
+    PointsModule,
   ],
   providers: [AuthService, AuthResolver, JwtStrategy, JwtAuthGuard, IsDevModeProvider],
   exports: [AuthService, JwtModule, JwtAuthGuard, IsDevModeProvider],

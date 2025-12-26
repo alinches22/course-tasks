@@ -84,6 +84,10 @@ model Battle {
   totalTicks         Int       @default(30) @map("total_ticks")           // Total ticks (locked from scenario)
   serverSeed         String?   @map("server_seed")                        // Random seed for determinism
   
+  // Stake/pool system (offchain MVP)
+  stakeAmount        Decimal   @default(100) @map("stake_amount") @db.Decimal(18, 8)  // Points staked per player
+  feeBps             Int       @default(500) @map("fee_bps")                          // Fee in basis points (500 = 5%)
+  
   createdAt  DateTime  @default(now()) @map("created_at")
   matchedAt  DateTime? @map("matched_at")
   startedAt  DateTime? @map("started_at")

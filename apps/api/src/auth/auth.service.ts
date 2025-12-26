@@ -3,11 +3,13 @@ import { JwtService } from '@nestjs/jwt';
 import { verifyMessage } from 'ethers';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '../config/config.service';
+import { PointsService } from '../points/points.service';
 import { generateNonce } from '../common/utils/hash.util';
 import { isExpired } from '../common/utils/time.util';
 import { AuthPayload } from './models/auth-payload.model';
 
 const SIGN_MESSAGE_PREFIX = 'Sign this message to authenticate with TradeVersus:\n\nNonce: ';
+const SIGNUP_BONUS = 1000; // Initial points for new users
 
 @Injectable()
 export class AuthService {
@@ -15,6 +17,7 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private pointsService: PointsService,
   ) {}
 
   /**
@@ -73,12 +76,23 @@ export class AuthService {
       where: { address: normalizedAddress },
     });
 
+    // Check if user exists (for signup bonus)
+    const existingUser = await this.prisma.user.findUnique({
+      where: { address: normalizedAddress },
+    });
+    const isNewUser = !existingUser;
+
     // Upsert user
     const user = await this.prisma.user.upsert({
       where: { address: normalizedAddress },
       update: { updatedAt: new Date() },
       create: { address: normalizedAddress },
     });
+
+    // Give signup bonus to new users
+    if (isNewUser) {
+      await this.pointsService.giveSignupBonus(user.id, SIGNUP_BONUS);
+    }
 
     // Generate JWT
     const token = this.generateToken(user.id, user.address);

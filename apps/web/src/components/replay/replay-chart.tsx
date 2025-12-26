@@ -14,7 +14,7 @@ interface Tick {
 
 interface Action {
   userId: string;
-  type: 'BUY' | 'SELL';
+  type: 'BUY' | 'SELL' | 'CLOSE';
   tickIndex: number;
   price: number;
 }
@@ -110,22 +110,35 @@ export function ReplayChart({ ticks, actions, currentIndex, className }: ReplayC
       // Draw action markers
       const actionAtTick = actions.filter((a) => a.tickIndex === index);
       actionAtTick.forEach((action) => {
-        const markerY = action.type === 'BUY' ? scaleY(tick.low) + 20 : scaleY(tick.high) - 20;
-        
         ctx.globalAlpha = 1;
-        ctx.fillStyle = action.type === 'BUY' ? '#22c55e' : '#ef4444';
-        ctx.beginPath();
-        if (action.type === 'BUY') {
-          ctx.moveTo(x, markerY - 8);
-          ctx.lineTo(x - 6, markerY + 4);
-          ctx.lineTo(x + 6, markerY + 4);
+        
+        if (action.type === 'CLOSE') {
+          // Draw X marker for CLOSE
+          const markerY = scaleY(tick.close);
+          ctx.strokeStyle = '#eab308'; // yellow
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(x - 5, markerY - 5);
+          ctx.lineTo(x + 5, markerY + 5);
+          ctx.moveTo(x + 5, markerY - 5);
+          ctx.lineTo(x - 5, markerY + 5);
+          ctx.stroke();
         } else {
-          ctx.moveTo(x, markerY + 8);
-          ctx.lineTo(x - 6, markerY - 4);
-          ctx.lineTo(x + 6, markerY - 4);
+          const markerY = action.type === 'BUY' ? scaleY(tick.low) + 20 : scaleY(tick.high) - 20;
+          ctx.fillStyle = action.type === 'BUY' ? '#22c55e' : '#ef4444';
+          ctx.beginPath();
+          if (action.type === 'BUY') {
+            ctx.moveTo(x, markerY - 8);
+            ctx.lineTo(x - 6, markerY + 4);
+            ctx.lineTo(x + 6, markerY + 4);
+          } else {
+            ctx.moveTo(x, markerY + 8);
+            ctx.lineTo(x - 6, markerY - 4);
+            ctx.lineTo(x + 6, markerY - 4);
+          }
+          ctx.closePath();
+          ctx.fill();
         }
-        ctx.closePath();
-        ctx.fill();
       });
     });
 

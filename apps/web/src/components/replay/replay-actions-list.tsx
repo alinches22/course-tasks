@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils/cn';
 
 interface Action {
   userId: string;
-  type: 'BUY' | 'SELL';
+  type: 'BUY' | 'SELL' | 'CLOSE';
   quantity: number;
   price: number;
   tickIndex: number;
@@ -14,7 +14,7 @@ interface Action {
 }
 
 interface Participant {
-  oderId: string;
+  userId: string;
   address: string;
   side: 'A' | 'B';
 }
@@ -26,7 +26,7 @@ interface ReplayActionsListProps {
 }
 
 export function ReplayActionsList({ actions, participants, currentIndex }: ReplayActionsListProps) {
-  const getParticipant = (userId: string) => participants.find((p) => p.oderId === userId);
+  const getParticipant = (userId: string) => participants.find((p) => p.userId === userId);
 
   const visibleActions = actions.filter((a) => a.tickIndex <= currentIndex);
 
@@ -46,7 +46,8 @@ export function ReplayActionsList({ actions, participants, currentIndex }: Repla
               animate={{ opacity: 1, x: 0 }}
               className={cn(
                 'flex items-center justify-between p-3 rounded-lg',
-                action.type === 'BUY' ? 'bg-accent-green/10' : 'bg-accent-red/10',
+                action.type === 'BUY' ? 'bg-accent-green/10' : 
+                action.type === 'SELL' ? 'bg-accent-red/10' : 'bg-accent-yellow/10',
                 isNew && 'ring-1 ring-white/20'
               )}
             >
@@ -72,7 +73,8 @@ export function ReplayActionsList({ actions, participants, currentIndex }: Repla
                 <p
                   className={cn(
                     'text-sm font-bold',
-                    action.type === 'BUY' ? 'text-accent-green' : 'text-accent-red'
+                    action.type === 'BUY' ? 'text-accent-green' : 
+                    action.type === 'SELL' ? 'text-accent-red' : 'text-accent-yellow'
                   )}
                 >
                   {action.type}
