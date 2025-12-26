@@ -4,12 +4,21 @@ import { PassportModule } from '@nestjs/passport';
 import { AuthService } from './auth.service';
 import { AuthResolver } from './auth.resolver';
 import { JwtStrategy } from './jwt.strategy';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { ConfigModule } from '../config/config.module';
 import { ConfigService } from '../config/config.service';
 import { UserModule } from '../user/user.module';
 
+// Provider for dev mode detection (used by JwtAuthGuard)
+const IsDevModeProvider = {
+  provide: 'IS_DEV_MODE',
+  useFactory: (config: ConfigService) => config.isDevelopment,
+  inject: [ConfigService],
+};
+
 @Module({
   imports: [
+    ConfigModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -23,7 +32,7 @@ import { UserModule } from '../user/user.module';
     }),
     forwardRef(() => UserModule),
   ],
-  providers: [AuthService, AuthResolver, JwtStrategy],
-  exports: [AuthService, JwtModule],
+  providers: [AuthService, AuthResolver, JwtStrategy, JwtAuthGuard, IsDevModeProvider],
+  exports: [AuthService, JwtModule, JwtAuthGuard, IsDevModeProvider],
 })
 export class AuthModule {}

@@ -33,17 +33,21 @@ import { AuthService } from '../auth/auth.service';
             onConnect: async (context: { connectionParams?: Record<string, unknown> }) => {
               const { connectionParams } = context;
               
-              // Support dev user via connectionParams (for testing)
-              const devUser = connectionParams?.['x-dev-user'] as string;
-              if (devUser) {
-                return {
-                  user: {
-                    userId: devUser,
-                    address: `0x${devUser.padStart(40, '0')}`,
-                  },
-                };
+              // Support dev user via connectionParams (ONLY in development)
+              if (configService.isDevelopment) {
+                const devUser = connectionParams?.['x-dev-user'] as string;
+                if (devUser) {
+                  console.log(`[DEV AUTH WS] Authenticated as: ${devUser}`);
+                  return {
+                    user: {
+                      userId: devUser,
+                      address: `0x${devUser.padStart(40, '0')}`,
+                    },
+                  };
+                }
               }
               
+              // JWT auth for production
               const authorization =
                 (connectionParams?.authorization as string) || (connectionParams?.Authorization as string);
 
@@ -54,13 +58,14 @@ import { AuthService } from '../auth/auth.service';
               try {
                 const token = authorization.replace('Bearer ', '');
                 const user = await authService.validateToken(token);
+                console.log(`[JWT AUTH WS] Authenticated user: ${user?.userId}`);
                 return { user };
               } catch {
                 return { user: null };
               }
             },
             onDisconnect: () => {
-              console.log('Client disconnected from WebSocket');
+              // Silent disconnect
             },
           },
           'subscriptions-transport-ws': false,

@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react';
 import { useAccount, useSignMessage } from 'wagmi';
-import { useMutation, useQuery } from 'urql';
+import { useMutation, useQuery, useClient } from 'urql';
 import { useAuthStore } from '@/stores/auth.store';
 import { GET_NONCE, VERIFY_SIGNATURE, GET_ME } from '@/lib/graphql/operations/auth';
 
@@ -12,7 +12,7 @@ export function useAuth() {
   const { token, user, isAuthenticated, setAuth, clearAuth } = useAuthStore();
   const [isSigningIn, setIsSigningIn] = useState(false);
 
-  const [, getNonce] = useMutation(GET_NONCE);
+  const client = useClient();
   const [, verifySignature] = useMutation(VERIFY_SIGNATURE);
 
   const [{ data: meData }] = useQuery({
@@ -25,24 +25,24 @@ export function useAuth() {
 
     setIsSigningIn(true);
     try {
-      // Get nonce
-      const nonceResult = await getNonce({ address });
+      // Get nonce (using query, not mutation)
+      const nonceResult = await client.query(GET_NONCE, { address }).toPromise();
       if (nonceResult.error || !nonceResult.data?.getNonce) {
-        throw new Error('Failed to get nonce');
+        throw new Error(nonceResult.error?.message || 'Failed to get nonce');
       }
 
       const { message } = nonceResult.data.getNonce;
 
-      // Sign message
+      // Sign message with wallet
       const signature = await signMessageAsync({ message });
 
-      // Verify signature
+      // Verify signature and get JWT
       const verifyResult = await verifySignature({
         input: { address, signature },
       });
 
       if (verifyResult.error || !verifyResult.data?.verifySignature) {
-        throw new Error('Failed to verify signature');
+        throw new Error(verifyResult.error?.message || 'Failed to verify signature');
       }
 
       const { token: newToken, user: newUser } = verifyResult.data.verifySignature;
@@ -53,7 +53,7 @@ export function useAuth() {
     } finally {
       setIsSigningIn(false);
     }
-  }, [address, getNonce, signMessageAsync, verifySignature, setAuth]);
+  }, [address, client, signMessageAsync, verifySignature, setAuth]);
 
   const signOut = useCallback(() => {
     clearAuth();

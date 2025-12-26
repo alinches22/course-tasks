@@ -411,6 +411,62 @@ For single-browser testing, use GraphQL Playground to:
 3. In Playground, set header `x-dev-user: opponent-test`
 4. Run `joinBattle` mutation
 
+## Authentication
+
+### Wallet Auth (Production)
+
+1. **Get Nonce** - Request a challenge nonce:
+```graphql
+query {
+  getNonce(address: "0x123...") {
+    nonce
+    message  # Sign this message with your wallet
+  }
+}
+```
+
+2. **Verify Signature** - Submit signed message to get JWT:
+```graphql
+mutation {
+  verifySignature(input: {
+    address: "0x123...",
+    signature: "0xabc..."
+  }) {
+    token  # JWT for authenticated requests
+    user {
+      id
+      address
+    }
+  }
+}
+```
+
+3. **Use JWT** - Include in requests:
+- HTTP: `Authorization: Bearer <token>` header
+- WebSocket: `{ authorization: "Bearer <token>" }` in connectionParams
+
+### Dev Auth (Development Only)
+
+For local testing without wallet:
+
+**HTTP Requests:**
+```
+Header: x-dev-user: alice
+```
+
+**WebSocket:**
+```javascript
+connectionParams: { 'x-dev-user': 'alice' }
+```
+
+⚠️ Dev auth is **disabled in production** (`NODE_ENV=production`)
+
+### User Model
+
+- Users are auto-created on first `verifySignature`
+- `walletAddress` is unique per user
+- User ID is a UUID, not the wallet address
+
 ## Server Fairness & Security
 
 ### Locked Battle Parameters

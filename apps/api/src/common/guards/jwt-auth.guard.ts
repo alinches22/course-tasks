@@ -1,4 +1,4 @@
-import { Injectable, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { Injectable, ExecutionContext, UnauthorizedException, Inject } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { AuthGuard } from '@nestjs/passport';
@@ -6,7 +6,10 @@ import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
-  constructor(private reflector: Reflector) {
+  constructor(
+    private reflector: Reflector,
+    @Inject('IS_DEV_MODE') private isDevelopment: boolean,
+  ) {
     super();
   }
 
@@ -20,18 +23,18 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       return true;
     }
 
-    // Check for dev auth header (development only)
     const ctx = GqlExecutionContext.create(context);
     const gqlContext = ctx.getContext();
     const req = gqlContext.req;
 
-    if (req?.headers?.['x-dev-user']) {
-      // In dev mode, allow bypassing auth with x-dev-user header
+    // Dev auth header - ONLY allowed in development mode
+    if (this.isDevelopment && req?.headers?.['x-dev-user']) {
       const devUser = req.headers['x-dev-user'];
       req.user = {
         userId: devUser,
         address: `0x${devUser.padStart(40, '0')}`,
       };
+      console.log(`[DEV AUTH] Authenticated as: ${devUser}`);
       return true;
     }
 
